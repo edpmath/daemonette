@@ -19,6 +19,7 @@ BuildRequires:  json-glib-devel
 BuildRequires:  libgee-devel
 BuildRequires:  desktop-file-utils
 BuildRequires:  libappstream-glib
+BuildRequires:  xorg-x11-server-Xvfb
 
 Requires:       gtk3
 Requires:       libayatana-appindicator-gtk3
@@ -43,7 +44,9 @@ microservices with near-zero memory footprint (~6 MB private RAM).
 %meson_install
 
 %check
-%meson_test
+# GTK tests need an (X) display; GitHub CI and minimal containers are headless
+# and gtk_init's display-manager class-init crashes without one (g_param_spec_boxed assertion).
+xvfb-run -a %{meson_test}
 
 %files
 %license LICENSE
