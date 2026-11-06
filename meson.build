@@ -1,7 +1,6 @@
 project('daemonette', ['c', 'vala'],
   version : '1.2.0',
   default_options : ['warning_level=3'])
-
 dependencies = [
     dependency('glib-2.0'),
     dependency('gobject-2.0'),
@@ -34,6 +33,7 @@ ui_sources = files(
 sources = core_sources + ui_sources + files('src/main.vala')
 
 exe = executable('daemonette', sources, dependencies : dependencies,
+  c_args : ['-DAPP_VERSION="' + meson.project_version() + '"'],
   install : true)
 
 install_data('data/io.github.edpmath.Daemonette.desktop',

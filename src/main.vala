@@ -94,9 +94,14 @@ namespace Daemonette {
         }
     }
 
+    /* Version injected as a C macro from meson.build (c_args: -DAPP_VERSION) */
+    [CCode (cname = "APP_VERSION")]
+    private extern const string APP_VERSION;
+
     public static int main (string[] args) {
         if ("--version" in args) {
-            stdout.printf ("Daemonette 1.0.0\n");            return 0;
+            stdout.printf ("Daemonette %s\n", APP_VERSION);
+            return 0;
         }
 
         if ("--test" in args) {

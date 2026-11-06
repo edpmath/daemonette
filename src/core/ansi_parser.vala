@@ -6,21 +6,32 @@ namespace Daemonette {
 
     public class AnsiParser : Object {
 
-        public static void setup_tags (Gtk.TextBuffer buffer) {
-            var tag_table = buffer.tag_table;
+        /**
+         * Creates and registers a TextTag, reusing an existing one if present.
+         * IMPORTANT: we do NOT use gtk_text_buffer_create_tag() / its varargs
+         * variant. That C function is (buffer, tag_name, first_property_name,
+         * ..., NULL) and calls va_arg() even when no property arguments are
+         * given, which is undefined behavior. With some GCC/GLib builds the
+         * garbage read is non-NULL and the parser dies with
+         * "g_param_spec_boxed: assertion 'G_TYPE_IS_BOXED (boxed_type)' failed"
+         * (observed on GitHub runners; worked by luck on local builds).
+         */
+        private static Gtk.TextTag add_tag (Gtk.TextBuffer buffer, string name) {
+            Gtk.TextTag? existing = buffer.tag_table.lookup (name);
+            if (existing != null) {
+                return existing;
+            }
+            var tag = new Gtk.TextTag (name);
+            buffer.tag_table.add (tag);
+            return tag;
+        }
 
-            if (tag_table.lookup ("ansi_bold") == null) {
-                // Note: do NOT use create_tag varargs (backgroundColor properties);
-                // gtk_text_buffer_create_tag() is a NULL-terminated varargs C function
-                // and omitting the terminator is undefined behavior (it crashed on
-                // some GLib builds with: g_param_spec_boxed assertion failure).
-                var bold_tag = buffer.create_tag ("ansi_bold");
-                bold_tag.weight = (int) Pango.Weight.BOLD;
-            }
-            if (tag_table.lookup ("ansi_dim") == null) {
-                var dim_tag = buffer.create_tag ("ansi_dim");
-                dim_tag.foreground = "#888888";
-            }
+        public static void setup_tags (Gtk.TextBuffer buffer) {
+            var bold_tag = add_tag (buffer, "ansi_bold");
+            bold_tag.weight = (int) Pango.Weight.BOLD;
+
+            var dim_tag = add_tag (buffer, "ansi_dim");
+            dim_tag.foreground = "#888888";
 
             // Standard terminal colors (modern high-contrast palette for dark backgrounds)
             create_color_tag (buffer, "ansi_fg_30", "#5c6370"); // Black / Dark Grey
@@ -44,10 +55,7 @@ namespace Daemonette {
         }
 
         private static void create_color_tag (Gtk.TextBuffer buffer, string name, string hex_color) {
-            if (buffer.tag_table.lookup (name) != null) {
-                return;
-            }
-            var tag = buffer.create_tag (name);
+            var tag = add_tag (buffer, name);
             tag.foreground = hex_color;
         }
 
