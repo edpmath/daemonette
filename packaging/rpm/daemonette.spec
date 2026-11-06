@@ -44,9 +44,10 @@ microservices with near-zero memory footprint (~6 MB private RAM).
 %meson_install
 
 %check
-# GTK tests need an (X) display; GitHub CI and minimal containers are headless
-# and gtk_init's display-manager class-init crashes without one (g_param_spec_boxed assertion).
-xvfb-run -a %{meson_test}
+# GTK tests need an (X) display and no accessibility bridge: GitHub CI and
+# minimal containers are headless, and gtk_init crashes there
+# (g_param_spec_boxed assertion; AT-SPI fatal warning without NO_AT_BRIDGE).
+xvfb-run -a env NO_AT_BRIDGE=1 %{meson_test}
 
 %files
 %license LICENSE

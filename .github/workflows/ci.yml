@@ -48,6 +48,7 @@ jobs:
       - name: Run unit tests
         run: |
           sudo apt-get install -y xvfb
+          export NO_AT_BRIDGE=1
           xvfb-run -a make test
 
       - name: Verify application version
@@ -114,6 +115,7 @@ jobs:
 
       - name: Run unit tests
         run: |
+          export NO_AT_BRIDGE=1
           xvfb-run -a meson test -C build --verbose
 
       - name: Build RPM package
@@ -121,7 +123,7 @@ jobs:
           VERSION="$(bash scripts/version.sh)"
           echo "==> Building RPM for daemonette ${VERSION}"
           mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          tar --exclude='./build' --exclude='./.git' -czf "~/rpmbuild/SOURCES/daemonette-${VERSION}.tar.gz" --transform "s,^\.,daemonette-${VERSION}," .
+          tar --exclude='./build' --exclude='./.git' -czf "${HOME}/rpmbuild/SOURCES/daemonette-${VERSION}.tar.gz" --transform "s,^\.,daemonette-${VERSION}," .
           cp packaging/rpm/daemonette.spec ~/rpmbuild/SPECS/
           sed -i "s/^Version:.*/Version:        ${VERSION}/" ~/rpmbuild/SPECS/daemonette.spec
           rpmbuild -ba ~/rpmbuild/SPECS/daemonette.spec
