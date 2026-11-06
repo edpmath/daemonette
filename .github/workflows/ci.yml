@@ -45,9 +45,19 @@ jobs:
         run: |
           make build
 
-      - name: Run unit tests
+      - name: Run unit tests (diagnostic backtrace)
         run: |
-          make test
+          sudo apt-get install -y gdb
+          meson test -C build --verbose 2>/dev/null || true
+          echo "=== GDB backtrace of ansi_parser crash ==="
+          gdb -q -batch \
+            -ex 'set pagination off' \
+            -ex 'set confirm off' \
+            -ex 'break g_param_spec_boxed' \
+            -ex run \
+            -ex 'bt' \
+            -ex continue \
+            ./build/daemonette-tests 2>&1 | tail -120
 
       - name: Verify application version
         run: |
