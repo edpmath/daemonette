@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.edpmath.Daemonette</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Daemonette</name>
+  <summary>Lightweight system tray process and service manager for developers</summary>
+  <summary xml:lang="es">Gestor ligero para la bandeja del sistema para controlar servicios y procesos locales</summary>
+
+  <description>
+    <p>
+      Daemonette is an ultra-lightweight desktop process manager for Linux, designed for software developers and system administrators. It lives in the system tray (AppIndicator) and provides instant access, status monitoring, and control over local development servers, background watchers, and microservices with near-zero memory footprint (~6 MB private RAM).
+    </p>
+    <p xml:lang="es">
+      Daemonette es un gestor de procesos de escritorio ultraligero para Linux, diseñado para desarrolladores y administradores de sistemas. Reside en la bandeja del sistema (AppIndicator) y ofrece acceso rápido, monitorización de estado y control sobre servidores de desarrollo local, watchers y microservicios con un consumo mínimo de memoria (~6 MB de RAM privada).
+    </p>
+    <ul>
+      <li>Ultra-low memory footprint (~6 MB private RAM) built in native Vala and GTK 3.</li>
+      <li>Zero orphan processes using strict POSIX process groups (PGID).</li>
+      <li>Real-time ANSI terminal log viewer and resource monitor (/proc CPU &amp; RAM telemetry).</li>
+      <li>Automatic cascading .env file support and command variants.</li>
+      <li>Native bilingual interface with automatic system locale detection.</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.edpmath.Daemonette.desktop</launchable>
+
+  <provides>
+    <binary>daemonette</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/edpmath/daemonette</url>
+  <url type="bugtracker">https://github.com/edpmath/daemonette/issues</url>
+
+  <developer id="io.github.edpmath">
+    <name>Elias Peraza</name>
+  </developer>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Centralized log viewer and real-time resource monitor</caption>
+      <caption xml:lang="es">Visor centralizado de logs y monitor de recursos en tiempo real</caption>
+      <image>https://raw.githubusercontent.com/edpmath/daemonette/main/assets/screenshots/log-viewer.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Desktop system tray menu</caption>
+      <caption xml:lang="es">Menú de la bandeja del sistema</caption>
+      <image>https://raw.githubusercontent.com/edpmath/daemonette/main/assets/screenshots/tray-menu.png</image>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="1.0.0" date="2026-11-06">
+      <description>
+        <p>Initial release of Daemonette.</p>
+        <p xml:lang="es">Lanzamiento inicial de Daemonette.</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1" />
+</component>

@@ -1,0 +1,115 @@
+# ==============================================================================
+# .gitignore for Daemonette (Vala + Meson + GNOME / GTK Project)
+# ==============================================================================
+
+# --- Meson / Ninja Build Directories ---
+/build/
+/builddir/
+/_build/
+/bin/
+
+# Meson & Ninja metadata, logs, and caches
+.ninja_log
+.ninja_deps
+meson-logs/
+meson-private/
+meson-info/
+compile_commands.json
+.meson-subproject-cache/
+/subprojects/*
+!/subprojects/*.wrap
+!/subprojects/*.patch
+
+# --- Compiled Binaries & Libraries ---
+*.o
+*.a
+*.la
+*.lo
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.c.o
+*.c.pico
+
+# In-tree project binaries (if built or copied directly to root)
+/daemonette
+/daemonette-tests
+
+# --- Vala & GObject Generation Artifacts ---
+*.stamp
+.vala-stamp
+# Uncomment if in-tree Vala compilation generates C/header files directly:
+# *.c
+# *.h
+*.gir
+*.typelib
+
+# --- GNOME, GLib & GSettings Artifacts ---
+gschemas.compiled
+*.gresource
+*.gresource.c
+*.gresource.h
+
+# --- Localization / Gettext (i18n) ---
+*.gmo
+*.mo
+*.pot
+*.po~
+
+# --- Flatpak & Packaging Artifacts ---
+.flatpak-builder/
+_flatpak_build/
+.flatpak/
+*.flatpak
+*.tar.gz
+*.tar.xz
+*.tar.bz2
+*.deb
+*.rpm
+dist/
+
+# --- Python Artifacts (scripts/mock_service.py) ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Testing & Code Coverage ---
+*.gcno
+*.gcda
+*.gcov
+
+# --- Logs, Runtime & Environment Files ---
+*.log
+.env
+.env.local
+.env.*.local
+
+# --- IDEs, Text Editors & OS Artifacts ---
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# JetBrains
+.idea/
+*.iml
+
+# Vim / Emacs
+*.swp
+*.swo
+*~
+\#*\#
+.#*
+
+# OS specific files
+.DS_Store
+Thumbs.db
+.directory
+
+# --- Project-specific Exclusions ---
+# Local raw logos / design assets directory
+logos/

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Daemonette
+Comment=Background service manager for local development
+Comment[es]=Gestor ligero de servicios y procesos locales para desarrolladores
+Exec=daemonette
+Icon=daemonette
+Terminal=false
+Categories=Development;
+Keywords=service;process;daemon;tray;indicator;manager;
+Keywords[es]=servicio;proceso;demonio;bandeja;indicador;gestor;
+StartupNotify=true

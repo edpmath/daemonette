@@ -1,0 +1,16 @@
+Package: daemonette
+# Placeholder: scripts/build_deb.sh injects the real version from meson.build
+# into the staged DEBIAN/control at packaging time.
+Version: 0.0.0
+Section: devel
+Priority: optional
+Architecture: amd64
+Maintainer: Elias Peraza <edpmath@users.noreply.github.com>
+Depends: libc6 (>= 2.34), libglib2.0-0t64 | libglib2.0-0 (>= 2.76), libgtk-3-0t64 | libgtk-3-0 (>= 3.24), libayatana-appindicator3-1 (>= 0.5.90), libjson-glib-1.0-0 (>= 1.8), libgee-0.8-2 (>= 0.20)
+Installed-Size: 1024
+Homepage: https://github.com/edpmath/daemonette
+Description: Lightweight Linux system tray process & service manager for developers
+ Daemonette is a lightweight background service and local process manager
+ for Linux living in the system tray (AppIndicator). It provides instant
+ service controls, real-time ANSI log monitoring, zero orphan processes
+ via POSIX PGIDs, and an ultra-low memory footprint (~6 MB private RAM).
