@@ -47,8 +47,9 @@ microservices with near-zero memory footprint (~6 MB private RAM).
 # GTK tests need an (X) display and no accessibility bridge: GitHub CI and
 # minimal containers are headless, and gtk_init crashes there
 # (g_param_spec_boxed assertion; AT-SPI fatal warning without NO_AT_BRIDGE).
-# NOTE: keep NO_AT_BRIDGE in its own "export" line — %meson_test expands on a
-# separate command line, so it cannot be chained after "xvfb-run -a env ...".
+# NOTE: keep NO_AT_BRIDGE in its own export line; the meson test macro
+# expands on a separate command line, so it cannot be chained with "env".
+# (Careful: do not mention macros inside comments; RPM expands them even there.)
 export NO_AT_BRIDGE=1
 xvfb-run -a %{meson_test}
 
