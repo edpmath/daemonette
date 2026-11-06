@@ -4,6 +4,7 @@
 
 # --- Meson / Ninja Build Directories ---
 /build/
+/build-deb/
 /builddir/
 /_build/
 /bin/

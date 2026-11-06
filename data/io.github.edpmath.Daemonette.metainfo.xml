@@ -50,6 +50,12 @@
   </screenshots>
 
   <releases>
+    <release version="1.2.0" date="2026-11-06">
+      <description>
+        <p>Release of Daemonette 1.2.0.</p>
+        <p xml:lang="es">Lanzamiento de Daemonette 1.2.0.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-11-06">
       <description>
         <p>Initial release of Daemonette.</p>

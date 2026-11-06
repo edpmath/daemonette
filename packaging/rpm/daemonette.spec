@@ -54,5 +54,7 @@ microservices with near-zero memory footprint (~6 MB private RAM).
 %{_datadir}/icons/hicolor/*/apps/daemonette.png
 
 %changelog
+* Fri Nov 06 2026 Elias Peraza <edp.matheus@gmail.com> - 1.2.0-1
+- Release 1.2.0
 * Fri Nov 06 2026 Elias Peraza <edpmath@users.noreply.github.com> - 1.0.0-1
 - Initial release

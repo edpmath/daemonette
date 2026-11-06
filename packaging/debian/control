@@ -1,6 +1,7 @@
 Package: daemonette
-# Placeholder: scripts/build_deb.sh injects the real version from meson.build
-# into the staged DEBIAN/control at packaging time.
+# Placeholder: scripts/build_deb.sh strips comment lines (they are not allowed
+# in the binary DEBIAN/control) and injects the real version from meson.build
+# into the staged control at packaging time.
 Version: 0.0.0
 Section: devel
 Priority: optional

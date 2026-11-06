@@ -2,31 +2,39 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${ROOT_DIR}/build"
-STAGING_DIR="${BUILD_DIR}/deb_staging"
+# Dedicated build directory for packaging: it is always configured with
+# prefix=/usr, so the .deb layout is correct regardless of the prefix used
+# by the user's regular development build/ directory.
+PACKAGE_BUILD_DIR="${ROOT_DIR}/build-deb"
+STAGING_DIR="${PACKAGE_BUILD_DIR}/deb_staging"
 PACKAGE_NAME="daemonette"
 VERSION="$("${ROOT_DIR}/scripts/version.sh")"
 ARCH="$(dpkg --print-architecture 2>/dev/null || echo "amd64")"
-OUTPUT_DEB="${BUILD_DIR}/${PACKAGE_NAME}_${VERSION}_${ARCH}.deb"
+OUTPUT_DIR="${ROOT_DIR}/build"
+OUTPUT_DEB="${OUTPUT_DIR}/${PACKAGE_NAME}_${VERSION}_${ARCH}.deb"
 
-echo "==> Ensuring build directory is configured..."
-if [ ! -f "${BUILD_DIR}/build.ninja" ]; then
-    meson setup "${BUILD_DIR}" --buildtype=release --prefix=/usr
+echo "==> Packaging version: ${VERSION}"
+echo "==> Ensuring packaging build directory is configured (prefix=/usr)..."
+if [ ! -f "${PACKAGE_BUILD_DIR}/build.ninja" ]; then
+    meson setup "${PACKAGE_BUILD_DIR}" --buildtype=release --prefix=/usr
 fi
 
 echo "==> Building ${PACKAGE_NAME} binary with Ninja..."
-ninja -C "${BUILD_DIR}"
+ninja -C "${PACKAGE_BUILD_DIR}"
 
 echo "==> Preparing staging area at ${STAGING_DIR}..."
 rm -rf "${STAGING_DIR}"
 mkdir -p "${STAGING_DIR}"
 
 echo "==> Installing files into staging directory..."
-DESTDIR="${STAGING_DIR}" ninja -C "${BUILD_DIR}" install
+mkdir -p "${OUTPUT_DIR}"
+DESTDIR="${STAGING_DIR}" ninja -C "${PACKAGE_BUILD_DIR}" install
 
 echo "==> Installing Debian package control scripts..."
 mkdir -p "${STAGING_DIR}/DEBIAN"
-cp "${ROOT_DIR}/packaging/debian/control" "${STAGING_DIR}/DEBIAN/control"
+# Install control scripts; strip human-oriented comment lines because
+# dpkg-deb does not accept comments in the binary package control file
+sed '/^[[:space:]]*#/d' "${ROOT_DIR}/packaging/debian/control" > "${STAGING_DIR}/DEBIAN/control"
 
 # Inject the project version (read from meson.build) into the staged control
 sed -i "s/^Version:.*/Version: ${VERSION}/" "${STAGING_DIR}/DEBIAN/control"
@@ -37,17 +45,8 @@ chmod 0755 "${STAGING_DIR}/DEBIAN/postinst"
 chmod 0755 "${STAGING_DIR}/DEBIAN/postrm"
 chmod 0644 "${STAGING_DIR}/DEBIAN/control"
 
-# Ensure binary is executable
-if [ -f "${STAGING_DIR}/usr/bin/daemonette" ]; then
-    chmod 0755 "${STAGING_DIR}/usr/bin/daemonette"
-elif [ -f "${STAGING_DIR}/usr/local/bin/daemonette" ]; then
-    # In case prefix was /usr/local, move to /usr
-    mkdir -p "${STAGING_DIR}/usr"
-    mv "${STAGING_DIR}/usr/local/bin" "${STAGING_DIR}/usr/" 2>/dev/null || true
-    mv "${STAGING_DIR}/usr/local/share" "${STAGING_DIR}/usr/" 2>/dev/null || true
-    rm -rf "${STAGING_DIR}/usr/local"
-    chmod 0755 "${STAGING_DIR}/usr/bin/daemonette"
-fi
+# Binary must be executable inside the package
+chmod 0755 "${STAGING_DIR}/usr/bin/daemonette"
 
 echo "==> Building .deb package with dpkg-deb..."
 dpkg-deb --build --root-owner-group "${STAGING_DIR}" "${OUTPUT_DEB}"
