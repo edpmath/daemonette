@@ -10,10 +10,16 @@ namespace Daemonette {
             var tag_table = buffer.tag_table;
 
             if (tag_table.lookup ("ansi_bold") == null) {
-                buffer.create_tag ("ansi_bold", "weight", Pango.Weight.BOLD);
+                // Note: do NOT use create_tag varargs (backgroundColor properties);
+                // gtk_text_buffer_create_tag() is a NULL-terminated varargs C function
+                // and omitting the terminator is undefined behavior (it crashed on
+                // some GLib builds with: g_param_spec_boxed assertion failure).
+                var bold_tag = buffer.create_tag ("ansi_bold");
+                bold_tag.weight = (int) Pango.Weight.BOLD;
             }
             if (tag_table.lookup ("ansi_dim") == null) {
-                buffer.create_tag ("ansi_dim", "foreground", "#888888");
+                var dim_tag = buffer.create_tag ("ansi_dim");
+                dim_tag.foreground = "#888888";
             }
 
             // Standard terminal colors (modern high-contrast palette for dark backgrounds)
@@ -41,7 +47,8 @@ namespace Daemonette {
             if (buffer.tag_table.lookup (name) != null) {
                 return;
             }
-            buffer.create_tag (name, "foreground", hex_color);
+            var tag = buffer.create_tag (name);
+            tag.foreground = hex_color;
         }
 
         /**

@@ -16,7 +16,7 @@ BuildRequires:  gcc
 BuildRequires:  gtk3-devel
 BuildRequires:  libayatana-appindicator-gtk3-devel
 BuildRequires:  json-glib-devel
-BuildRequires:  gee08-devel
+BuildRequires:  libgee-devel
 BuildRequires:  desktop-file-utils
 BuildRequires:  libappstream-glib
 

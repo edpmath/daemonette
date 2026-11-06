@@ -96,7 +96,7 @@ jobs:
             gtk3-devel \
             libayatana-appindicator-gtk3-devel \
             json-glib-devel \
-            gee08-devel \
+            libgee-devel \
             rpm-build \
             desktop-file-utils \
             libappstream-glib
