@@ -128,7 +128,12 @@ jobs:
           sed -i "s/^Version:.*/Version:        ${VERSION}/" ~/rpmbuild/SPECS/daemonette.spec
           rpmbuild -ba ~/rpmbuild/SPECS/daemonette.spec
           mkdir -p dist
-          cp ~/rpmbuild/RPMS/*/*.rpm dist/
+          # Upload only the actual package. debuginfo/debugsource RPMs are
+          # useful for symbolized backtraces (kept in CI artifacts) but are
+          # noise for end users, so they are excluded from the release.
+          find ~/rpmbuild/RPMS -name '*.rpm' \
+            ! -name '*debuginfo*' ! -name '*debugsource*' \
+            -exec cp '{}' dist/ \;
 
       - name: Upload .rpm artifact
         uses: actions/upload-artifact@v4
