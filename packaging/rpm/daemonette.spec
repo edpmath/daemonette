@@ -51,7 +51,7 @@ microservices with near-zero memory footprint (~6 MB private RAM).
 # expands on a separate command line, so it cannot be chained with "env".
 # (Careful: do not mention macros inside comments; RPM expands them even there.)
 export NO_AT_BRIDGE=1
-xvfb-run -a %{meson_test}
+xvfb-run -a meson test -C %{_vpath_builddir} --print-errorlogs
 
 %files
 %license LICENSE
