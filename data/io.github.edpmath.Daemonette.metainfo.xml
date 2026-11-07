@@ -50,6 +50,12 @@
   </screenshots>
 
   <releases>
+    <release version="1.2.1" date="2026-11-07">
+      <description>
+        <p>Release of Daemonette 1.2.1: improved process runner with user shell ($SHELL) execution, interactive environment PATH inheritance (NVM, SDKMAN, Cargo, Bun, PNPM), and automatic project-local binary discovery (node_modules/.bin, .venv/bin).</p>
+        <p xml:lang="es">Lanzamiento de Daemonette 1.2.1: mejoras en la ejecución de procesos con shell del usuario ($SHELL), herencia del PATH del entorno interactivo (NVM, SDKMAN, Cargo, Bun, PNPM) y detección automática de binarios locales de proyecto (node_modules/.bin, .venv/bin).</p>
+      </description>
+    </release>
     <release version="1.2.0" date="2026-11-06">
       <description>
         <p>Release of Daemonette 1.2.0.</p>

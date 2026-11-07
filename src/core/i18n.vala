@@ -161,6 +161,7 @@ namespace Daemonette {
             es_dict.set ("Local URL (Optional):", "URL local (Opcional):");
             es_dict.set ("e.g. http://localhost:9000", "ej. http://localhost:8000");
             es_dict.set ("Execution Options", "Opciones de Ejecución");
+            es_dict.set ("Run via shell ($SHELL - supports pipes and variables)", "Ejecutar vía shell ($SHELL - soporta pipes y variables)");
             es_dict.set ("Run via shell (/bin/sh - supports pipes and variables)", "Ejecutar vía shell (/bin/sh - soporta pipes y variables)");
             es_dict.set ("Automatically load local .env variables", "Cargar variables locales de .env automáticamente");
             es_dict.set ("Automatically restart if process crashes", "Reiniciar automáticamente si el proceso falla");
@@ -184,6 +185,7 @@ namespace Daemonette {
             es_dict.set ("Alternative command", "Comando alternativo");
             es_dict.set ("Local URL (optional):", "URL local (opcional):");
             es_dict.set ("Specific URL (optional)", "URL específica (opcional)");
+            es_dict.set ("Run via shell ($SHELL)", "Ejecutar vía shell ($SHELL)");
             es_dict.set ("Run via shell (/bin/sh)", "Ejecutar vía shell (/bin/sh)");
             es_dict.set ("Are you sure you want to delete service '%s'?", "¿Estás seguro de que deseas eliminar el servicio '%s'?");
             es_dict.set ("This action cannot be undone.", "Esta acción no se puede deshacer.");
@@ -193,9 +195,6 @@ namespace Daemonette {
             // Notifications
             es_dict.set ("Service Crashed: %s", "Servicio caído: %s");
             es_dict.set ("Process exited with code %d", "El proceso terminó con código %d");
-
-            // Duplication
-            es_dict.set ("Copy", "Copia");
         }
     }
 

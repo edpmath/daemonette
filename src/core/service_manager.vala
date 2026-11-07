@@ -91,7 +91,8 @@ namespace Daemonette {
             var original = get_service (service_id);
             if (original == null) return null;
 
-            string copy_name = "%s (%s)".printf (original.name, tr ("Copy"));
+            string copy_suffix = I18n.get_instance ().is_spanish () ? "Copia" : "Copy";
+            string copy_name = "%s (%s)".printf (original.name, copy_suffix);
             var cloned = original.clone_as_new (copy_name);
             add_service (cloned);
             return cloned;

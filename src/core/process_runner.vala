@@ -147,15 +147,177 @@ namespace Daemonette {
             return true;
         }
 
-        private ServiceVariant? resolve_variant (ServiceDefinition service, string? variant_id) {
+        public ServiceVariant? resolve_variant (ServiceDefinition service, string? variant_id) {
             if (variant_id == null || variant_id.strip () == "") {
                 return null;
             }
             return service.find_variant (variant_id);
         }
 
-        private string[] build_effective_environment (ServiceDefinition service, ServiceVariant? variant) {
+        private static string? cached_user_shell_path = null;
+        private static bool shell_path_probed = false;
+
+        public static string resolve_user_shell () {
+            unowned string? user_shell = GLib.Environment.get_variable ("SHELL");
+            if (user_shell != null && user_shell.strip () != "" && GLib.FileUtils.test (user_shell, GLib.FileTest.IS_EXECUTABLE)) {
+                return user_shell;
+            }
+            if (GLib.FileUtils.test ("/bin/bash", GLib.FileTest.IS_EXECUTABLE)) {
+                return "/bin/bash";
+            }
+            return "/bin/sh";
+        }
+
+        public static string get_cached_user_shell_path () {
+            if (shell_path_probed) {
+                return cached_user_shell_path ?? "";
+            }
+            shell_path_probed = true;
+            cached_user_shell_path = probe_user_shell_path ();
+            return cached_user_shell_path ?? "";
+        }
+
+        private static string? probe_user_shell_path () {
+            string shell = resolve_user_shell ();
+
+            // Delimiters to isolate PATH from potential shell startup messages or MOTD
+            string start_marker = "___DAEMONETTE_PATH_START___";
+            string end_marker = "___DAEMONETTE_PATH_END___";
+            string probe_cmd = "printf \"%s%s%s\" \"" + start_marker + "\" \"$PATH\" \"" + end_marker + "\"";
+
+            string[] argv = { shell, "-i", "-c", probe_cmd };
+
+            var cancellable = new GLib.Cancellable ();
+            new GLib.Thread<void*> ("shell-probe-watchdog", () => {
+                GLib.Thread.usleep (1500000); // 1.5 seconds safety timeout
+                cancellable.cancel ();
+                return null;
+            });
+
+            string? probed_path = null;
+            try {
+                var subp = new GLib.Subprocess.newv (argv, GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_SILENCE);
+                string stdout_buf;
+                subp.communicate_utf8 (null, cancellable, out stdout_buf, null);
+
+                if (stdout_buf != null && stdout_buf.contains (start_marker)) {
+                    int s_idx = stdout_buf.index_of (start_marker) + start_marker.length;
+                    int e_idx = stdout_buf.index_of (end_marker, s_idx);
+                    if (e_idx > s_idx) {
+                        probed_path = stdout_buf.substring (s_idx, e_idx - s_idx).strip ();
+                    }
+                }
+            } catch (GLib.Error e) {
+                // If interactive probe timed out or failed, fallback logic applies
+            }
+
+            string fallback = fallback_user_paths ();
+            if (probed_path != null && probed_path != "") {
+                return merge_paths ({ probed_path, fallback });
+            }
+            return fallback;
+        }
+
+        private static string fallback_user_paths () {
+            string home = GLib.Environment.get_home_dir ();
+            var paths = new Gee.ArrayList<string> ();
+
+            string[] candidates = {
+                GLib.Path.build_filename (home, ".local", "bin"),
+                GLib.Path.build_filename (home, ".cargo", "bin"),
+                GLib.Path.build_filename (home, ".bun", "bin"),
+                GLib.Path.build_filename (home, ".local", "share", "pnpm"),
+                "/usr/local/bin",
+                "/usr/local/go/bin"
+            };
+
+            foreach (var c in candidates) {
+                if (GLib.FileUtils.test (c, GLib.FileTest.IS_DIR)) {
+                    paths.add (c);
+                }
+            }
+
+            // Also check for Node versions under NVM
+            string nvm_versions_dir = GLib.Path.build_filename (home, ".nvm", "versions", "node");
+            if (GLib.FileUtils.test (nvm_versions_dir, GLib.FileTest.IS_DIR)) {
+                try {
+                    var dir = GLib.Dir.open (nvm_versions_dir);
+                    string? entry = null;
+                    while ((entry = dir.read_name ()) != null) {
+                        string bin_path = GLib.Path.build_filename (nvm_versions_dir, entry, "bin");
+                        if (GLib.FileUtils.test (bin_path, GLib.FileTest.IS_DIR)) {
+                            paths.add (bin_path);
+                        }
+                    }
+                } catch (GLib.Error e) {
+                    // Ignore directory read error
+                }
+            }
+
+            return merge_paths (paths.to_array ());
+        }
+
+        public static string merge_paths (string[] path_segments) {
+            var seen = new Gee.HashSet<string> ();
+            var result = new Gee.ArrayList<string> ();
+
+            foreach (var segment in path_segments) {
+                if (segment == null || segment.strip () == "") {
+                    continue;
+                }
+                string[] parts = segment.split (":");
+                foreach (var part in parts) {
+                    string clean = part.strip ();
+                    if (clean != "" && !seen.contains (clean)) {
+                        seen.add (clean);
+                        result.add (clean);
+                    }
+                }
+            }
+
+            return string.joinv (":", result.to_array ());
+        }
+
+        public string[] build_effective_environment (ServiceDefinition service, ServiceVariant? variant = null) {
             string[] envp = GLib.Environ.get ();
+
+            // 1. Comprehensive developer PATH resolution
+            string base_path = GLib.Environ.get_variable (envp, "PATH") ?? "";
+            string shell_path = get_cached_user_shell_path ();
+
+            var path_segments = new Gee.ArrayList<string> ();
+
+            // Project-local binaries have highest execution priority
+            if (service.working_directory.strip () != "") {
+                string node_modules_bin = GLib.Path.build_filename (service.working_directory, "node_modules", ".bin");
+                if (GLib.FileUtils.test (node_modules_bin, GLib.FileTest.IS_DIR)) {
+                    path_segments.add (node_modules_bin);
+                }
+
+                string dot_venv_bin = GLib.Path.build_filename (service.working_directory, ".venv", "bin");
+                if (GLib.FileUtils.test (dot_venv_bin, GLib.FileTest.IS_DIR)) {
+                    path_segments.add (dot_venv_bin);
+                } else {
+                    string venv_bin = GLib.Path.build_filename (service.working_directory, "venv", "bin");
+                    if (GLib.FileUtils.test (venv_bin, GLib.FileTest.IS_DIR)) {
+                        path_segments.add (venv_bin);
+                    }
+                }
+            }
+
+            if (shell_path != "") {
+                path_segments.add (shell_path);
+            }
+            if (base_path != "") {
+                path_segments.add (base_path);
+            }
+
+            string effective_path = merge_paths (path_segments.to_array ());
+            envp = GLib.Environ.set_variable ((owned) envp, "PATH", effective_path, true);
+
+            // Ensure SHELL is defined in environment
+            string shell = resolve_user_shell ();
+            envp = GLib.Environ.set_variable ((owned) envp, "SHELL", shell, false);
 
             if (service.load_dotenv && service.working_directory.strip () != "") {
                 var dotenv_vars = service_manager.parse_dotenv (service.working_directory);
@@ -177,9 +339,10 @@ namespace Daemonette {
             return envp;
         }
 
-        private string[]? resolve_command_argv (string command, bool use_shell, string service_name) {
+        public string[]? resolve_command_argv (string command, bool use_shell, string service_name) {
             if (use_shell) {
-                return new string[] { "/bin/sh", "-c", command };
+                string shell = resolve_user_shell ();
+                return new string[] { shell, "-c", command };
             }
 
             try {

@@ -32,6 +32,7 @@ namespace Daemonette.Tests {
         assert_true (tr ("Stopped") == "Detenido");
         assert_true (tr ("Save") == "Guardar");
         assert_true (tr ("Cancel") == "Cancelar");
+        assert_true (tr ("Copy") == "Copiar");
         assert_true (tr ("➕ Register new service...") == "➕ Registrar nuevo servicio...");
     }
 

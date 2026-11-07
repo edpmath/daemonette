@@ -95,7 +95,7 @@ namespace Daemonette {
             var options_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 6);
             options_box.border_width = 10;
 
-            shell_check = new Gtk.CheckButton.with_label (tr ("Run via shell (/bin/sh - supports pipes and variables)"));
+            shell_check = new Gtk.CheckButton.with_label (tr ("Run via shell ($SHELL - supports pipes and variables)"));
             shell_check.active = true;
             options_box.pack_start (shell_check, false, false, 0);
 
@@ -269,7 +269,7 @@ namespace Daemonette {
             var v_name = new Gtk.Entry () { placeholder_text = tr ("Name (e.g. E2E Mode)") };
             var v_cmd = new Gtk.Entry () { placeholder_text = tr ("Alternative command") };
             var v_url = new Gtk.Entry () { placeholder_text = tr ("Specific URL (optional)") };
-            var v_shell = new Gtk.CheckButton.with_label (tr ("Run via shell (/bin/sh)")) { active = true };
+            var v_shell = new Gtk.CheckButton.with_label (tr ("Run via shell ($SHELL)")) { active = true };
 
             area.pack_start (new Gtk.Label (tr ("Variant name:")) { xalign = 0 }, false, false, 0);
             area.pack_start (v_name, false, false, 0);

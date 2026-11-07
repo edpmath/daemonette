@@ -62,6 +62,8 @@ xvfb-run -a meson test -C %{_vpath_builddir} --print-errorlogs
 %{_datadir}/icons/hicolor/*/apps/daemonette.png
 
 %changelog
+* Sat Nov 07 2026 Elias Peraza <edp.matheus@gmail.com> - 1.2.1-1
+- Release 1.2.1
 * Fri Nov 06 2026 Elias Peraza <edp.matheus@gmail.com> - 1.2.0-1
 - Release 1.2.0
 * Fri Nov 06 2026 Elias Peraza <edpmath@users.noreply.github.com> - 1.0.0-1
