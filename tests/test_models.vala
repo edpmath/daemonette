@@ -6,11 +6,13 @@ namespace Daemonette.Tests {
 
     public void register_models_tests () {
         GLib.Test.add_func ("/models/service_definition/defaults", test_service_definition_defaults);
+        GLib.Test.add_func ("/models/service_definition/stack_property", test_service_definition_stack_property);
         GLib.Test.add_func ("/models/service_definition/find_variant", test_find_variant);
         GLib.Test.add_func ("/models/service_definition/clone_as_new", test_clone_as_new);
         GLib.Test.add_func ("/models/process_metrics/formatting", test_process_metrics_formatting);
         GLib.Test.add_func ("/models/process_metrics/reset", test_process_metrics_reset);
         GLib.Test.add_func ("/models/service_status/display_string", test_service_status_display_string);
+        GLib.Test.add_func ("/models/stack_status/display_string", test_stack_status_display_string);
         GLib.Test.add_func ("/models/app_settings/defaults", test_app_settings_defaults);
     }
 
@@ -19,6 +21,7 @@ namespace Daemonette.Tests {
 
         assert_true (s.id == "srv_test");
         assert_true (s.name == "API Server");
+        assert_true (s.stack == "");
         assert_true (s.working_directory == "/var/www");
         assert_true (s.command == "npm start");
         assert_true (s.url == "http://localhost:3000");
@@ -30,6 +33,13 @@ namespace Daemonette.Tests {
         assert_true (s.active_variant_id == null);
         assert_true (s.variants.size == 0);
         assert_true (s.environment.size == 0);
+    }
+
+    private void test_service_definition_stack_property () {
+        var s = new ServiceDefinition ("srv_pg", "Postgres", "/db", "pg_ctl start", "", "Ecommerce");
+        assert_true (s.stack == "Ecommerce");
+        s.stack = "Fullstack";
+        assert_true (s.stack == "Fullstack");
     }
 
     private void test_find_variant () {
@@ -53,7 +63,7 @@ namespace Daemonette.Tests {
     }
 
     private void test_clone_as_new () {
-        var s = new ServiceDefinition ("srv_original", "Worker", "/worker", "python run.py");
+        var s = new ServiceDefinition ("srv_original", "Worker", "/worker", "python run.py", "", "DataPipeline");
         s.environment.set ("PORT", "8080");
         s.variants.add (new ServiceVariant ("var_orig", "Debug", "python run.py --debug"));
 
@@ -62,6 +72,7 @@ namespace Daemonette.Tests {
         assert_true (clone.id != s.id);
         assert_true (clone.id.has_prefix ("srv_"));
         assert_true (clone.name == "Worker Copy");
+        assert_true (clone.stack == "DataPipeline");
         assert_true (clone.working_directory == s.working_directory);
         assert_true (clone.command == s.command);
         assert_true (clone.environment.get ("PORT") == "8080");
@@ -136,6 +147,26 @@ namespace Daemonette.Tests {
         assert_true (ServiceStatus.RUNNING.to_display_string () == "En ejecución");
         assert_true (ServiceStatus.STOPPING.to_display_string () == "Deteniendo...");
         assert_true (ServiceStatus.FAILED.to_display_string () == "Error / Detenido");
+
+        I18n.get_instance ().set_language_mode ("system");
+    }
+
+    private void test_stack_status_display_string () {
+        I18n.get_instance ().set_language_mode ("en");
+        assert_true (StackStatus.STOPPED.to_display_string () == "Stopped");
+        assert_true (StackStatus.STARTING.to_display_string () == "Starting...");
+        assert_true (StackStatus.RUNNING.to_display_string () == "Running");
+        assert_true (StackStatus.PARTIALLY_RUNNING.to_display_string () == "Partially Running");
+        assert_true (StackStatus.STOPPING.to_display_string () == "Stopping...");
+        assert_true (StackStatus.FAILED.to_display_string () == "Error / Stopped");
+
+        I18n.get_instance ().set_language_mode ("es");
+        assert_true (StackStatus.STOPPED.to_display_string () == "Detenido");
+        assert_true (StackStatus.STARTING.to_display_string () == "Iniciando...");
+        assert_true (StackStatus.RUNNING.to_display_string () == "En ejecución");
+        assert_true (StackStatus.PARTIALLY_RUNNING.to_display_string () == "Parcialmente en ejecución");
+        assert_true (StackStatus.STOPPING.to_display_string () == "Deteniendo...");
+        assert_true (StackStatus.FAILED.to_display_string () == "Error / Detenido");
 
         I18n.get_instance ().set_language_mode ("system");
     }

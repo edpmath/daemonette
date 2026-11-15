@@ -111,6 +111,10 @@ __pycache__/
 Thumbs.db
 .directory
 
+# Agents
+.agents
+.opencode
+
 # --- Project-specific Exclusions ---
 # Local raw logos / design assets directory
 logos/

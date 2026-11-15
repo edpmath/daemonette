@@ -50,6 +50,12 @@
   </screenshots>
 
   <releases>
+    <release version="1.3.0" date="2026-11-14">
+      <description>
+        <p>Release of Daemonette 1.3.0.</p>
+        <p xml:lang="es">Lanzamiento de Daemonette 1.3.0.</p>
+      </description>
+    </release>
     <release version="1.2.1" date="2026-11-07">
       <description>
         <p>Release of Daemonette 1.2.1: improved process runner with user shell ($SHELL) execution, interactive environment PATH inheritance (NVM, SDKMAN, Cargo, Bun, PNPM), and automatic project-local binary discovery (node_modules/.bin, .venv/bin).</p>

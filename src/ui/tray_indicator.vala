@@ -12,6 +12,7 @@ namespace Daemonette {
         private Gtk.Menu? current_menu;
         private Gtk.MenuItem? header_item = null;
         private Gee.HashMap<string, Gtk.MenuItem> service_items;
+        private Gee.HashMap<string, Gtk.MenuItem> stack_items;
 
         public signal void request_new_service ();
         public signal void request_edit_service (string service_id);
@@ -23,6 +24,7 @@ namespace Daemonette {
             this.process_runner = process_runner;
             this.resource_monitor = resource_monitor;
             this.service_items = new Gee.HashMap<string, Gtk.MenuItem> ();
+            this.stack_items = new Gee.HashMap<string, Gtk.MenuItem> ();
 
             this.indicator = new AppIndicator.Indicator (
                 "daemonette",
@@ -147,6 +149,7 @@ namespace Daemonette {
 
         private void populate_services_section (Gtk.Menu menu) {
             service_items.clear ();
+            stack_items.clear ();
             if (service_manager.services.size == 0) {
                 var empty_item = new Gtk.MenuItem.with_label (tr ("(No registered services)"));
                 empty_item.set_sensitive (false);
@@ -154,11 +157,106 @@ namespace Daemonette {
                 return;
             }
 
-            foreach (var s in service_manager.services) {
-                var item = create_service_submenu_item (s);
-                service_items.set (s.id, item);
-                menu.append (item);
+            var stacks = service_manager.get_stacks ();
+            var ungrouped = service_manager.get_ungrouped_services ();
+
+            if (stacks.size == 0) {
+                foreach (var s in service_manager.services) {
+                    var item = create_service_submenu_item (s);
+                    service_items.set (s.id, item);
+                    menu.append (item);
+                }
+                return;
             }
+
+            // Populate Stacks
+            foreach (var stack_name in stacks) {
+                var stack_services = service_manager.get_services_by_stack (stack_name);
+                var stack_item = create_stack_submenu_item (stack_name, stack_services);
+                stack_items.set (stack_name, stack_item);
+                menu.append (stack_item);
+            }
+
+            // Populate ungrouped/standalone services
+            if (ungrouped.size > 0) {
+                menu.append (new Gtk.SeparatorMenuItem ());
+                var standalone_header = new Gtk.MenuItem.with_label (tr ("Other Services"));
+                standalone_header.set_sensitive (false);
+                menu.append (standalone_header);
+
+                foreach (var s in ungrouped) {
+                    var item = create_service_submenu_item (s);
+                    service_items.set (s.id, item);
+                    menu.append (item);
+                }
+            }
+        }
+
+        private Gtk.MenuItem create_stack_submenu_item (string stack_name, Gee.ArrayList<ServiceDefinition> stack_services) {
+            int running_in_stack = 0;
+            int failed_in_stack = 0;
+            foreach (var s in stack_services) {
+                if (s.status == ServiceStatus.RUNNING || s.status == ServiceStatus.STARTING) {
+                    running_in_stack++;
+                } else if (s.status == ServiceStatus.FAILED) {
+                    failed_in_stack++;
+                }
+            }
+
+            string bullet;
+            if (failed_in_stack > 0) {
+                bullet = "▲";
+            } else if (running_in_stack == stack_services.size && stack_services.size > 0) {
+                bullet = "●";
+            } else if (running_in_stack > 0) {
+                bullet = "◐";
+            } else {
+                bullet = "○";
+            }
+
+            string label = "%s %s: %s  [%d/%d]".printf (
+                bullet,
+                tr ("Stack"),
+                stack_name,
+                running_in_stack,
+                stack_services.size
+            );
+
+            var stack_item = new Gtk.MenuItem.with_label (label);
+            var stack_menu = new Gtk.Menu ();
+
+            // Stack batch actions
+            var start_item = new Gtk.MenuItem.with_label (tr ("▶ Start Stack"));
+            start_item.set_sensitive (running_in_stack < stack_services.size);
+            start_item.activate.connect (() => {
+                process_runner.start_stack (stack_name);
+            });
+            stack_menu.append (start_item);
+
+            var stop_item = new Gtk.MenuItem.with_label (tr ("🛑 Stop Stack"));
+            stop_item.set_sensitive (running_in_stack > 0);
+            stop_item.activate.connect (() => {
+                process_runner.stop_stack (stack_name);
+            });
+            stack_menu.append (stop_item);
+
+            var restart_item = new Gtk.MenuItem.with_label (tr ("🔄 Restart Stack"));
+            restart_item.activate.connect (() => {
+                process_runner.restart_stack (stack_name);
+            });
+            stack_menu.append (restart_item);
+
+            stack_menu.append (new Gtk.SeparatorMenuItem ());
+
+            // Individual services within this stack
+            foreach (var s in stack_services) {
+                var s_item = create_service_submenu_item (s);
+                service_items.set (s.id, s_item);
+                stack_menu.append (s_item);
+            }
+
+            stack_item.set_submenu (stack_menu);
+            return stack_item;
         }
 
         private void append_global_actions (Gtk.Menu menu, int running_count) {
@@ -377,6 +475,39 @@ namespace Daemonette {
                 header_item.label = (running_count > 0)
                     ? tr ("[●] %d active | Total RAM: %s").printf (running_count, ram_str)
                     : tr ("[○] 0 active (Idle)");
+            }
+
+            foreach (var entry in stack_items.entries) {
+                string stack_name = entry.key;
+                var stack_services = service_manager.get_services_by_stack (stack_name);
+                int running_in_stack = 0;
+                int failed_in_stack = 0;
+                foreach (var s in stack_services) {
+                    if (s.status == ServiceStatus.RUNNING || s.status == ServiceStatus.STARTING) {
+                        running_in_stack++;
+                    } else if (s.status == ServiceStatus.FAILED) {
+                        failed_in_stack++;
+                    }
+                }
+
+                string bullet;
+                if (failed_in_stack > 0) {
+                    bullet = "▲";
+                } else if (running_in_stack == stack_services.size && stack_services.size > 0) {
+                    bullet = "●";
+                } else if (running_in_stack > 0) {
+                    bullet = "◐";
+                } else {
+                    bullet = "○";
+                }
+
+                entry.value.label = "%s %s: %s  [%d/%d]".printf (
+                    bullet,
+                    tr ("Stack"),
+                    stack_name,
+                    running_in_stack,
+                    stack_services.size
+                );
             }
 
             foreach (var entry in service_items.entries) {

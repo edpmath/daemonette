@@ -476,6 +476,94 @@ namespace Daemonette {
             }
         }
 
+        /**
+         * Returns the aggregate status of all services in a stack.
+         */
+        public StackStatus get_stack_status (string stack_name) {
+            var stack_services = service_manager.get_services_by_stack (stack_name);
+            if (stack_services.size == 0) {
+                return StackStatus.STOPPED;
+            }
+
+            int running_count = 0;
+            int starting_count = 0;
+            int stopping_count = 0;
+            int failed_count = 0;
+            int stopped_count = 0;
+
+            foreach (var s in stack_services) {
+                switch (s.status) {
+                    case ServiceStatus.RUNNING:
+                        running_count++;
+                        break;
+                    case ServiceStatus.STARTING:
+                        starting_count++;
+                        break;
+                    case ServiceStatus.STOPPING:
+                        stopping_count++;
+                        break;
+                    case ServiceStatus.FAILED:
+                        failed_count++;
+                        break;
+                    case ServiceStatus.STOPPED:
+                    default:
+                        stopped_count++;
+                        break;
+                }
+            }
+
+            if (failed_count > 0) {
+                return StackStatus.FAILED;
+            }
+            if (running_count == stack_services.size) {
+                return StackStatus.RUNNING;
+            }
+            if (stopped_count == stack_services.size) {
+                return StackStatus.STOPPED;
+            }
+            if (starting_count == stack_services.size) {
+                return StackStatus.STARTING;
+            }
+            if (stopping_count == stack_services.size) {
+                return StackStatus.STOPPING;
+            }
+            return StackStatus.PARTIALLY_RUNNING;
+        }
+
+        /**
+         * Starts all services in the specified stack.
+         */
+        public void start_stack (string stack_name) {
+            var stack_services = service_manager.get_services_by_stack (stack_name);
+            foreach (var s in stack_services) {
+                if (s.status != ServiceStatus.RUNNING && s.status != ServiceStatus.STARTING) {
+                    start_service (s, null);
+                }
+            }
+        }
+
+        /**
+         * Stops all services in the specified stack.
+         */
+        public void stop_stack (string stack_name) {
+            var stack_services = service_manager.get_services_by_stack (stack_name);
+            foreach (var s in stack_services) {
+                if (s.status == ServiceStatus.RUNNING || s.status == ServiceStatus.STARTING) {
+                    stop_service (s.id);
+                }
+            }
+        }
+
+        /**
+         * Restarts all services in the specified stack.
+         */
+        public void restart_stack (string stack_name) {
+            var stack_services = service_manager.get_services_by_stack (stack_name);
+            foreach (var s in stack_services) {
+                restart_service (s, s.active_variant_id);
+            }
+        }
+
         private void on_process_exited (ServiceDefinition service, GLib.Subprocess subp, ActiveProcess active) {
             // Cancel kill timeout if still pending
             if (active.kill_timeout_id != 0) {

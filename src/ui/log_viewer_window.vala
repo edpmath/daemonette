@@ -301,10 +301,21 @@ namespace Daemonette {
                 sidebar_listbox.remove (child);
             }
 
+            var ordered_services = new Gee.ArrayList<ServiceDefinition> ();
+            var stacks = service_manager.get_stacks ();
+            foreach (var st in stacks) {
+                foreach (var s in service_manager.get_services_by_stack (st)) {
+                    ordered_services.add (s);
+                }
+            }
+            foreach (var s in service_manager.get_ungrouped_services ()) {
+                ordered_services.add (s);
+            }
+
             int index_to_select = 0;
             int i = 0;
 
-            foreach (var s in service_manager.services) {
+            foreach (var s in ordered_services) {
                 var row = new Gtk.ListBoxRow ();
                 var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 2) { margin = 6 };
 
@@ -319,7 +330,9 @@ namespace Daemonette {
                 }
 
                 var title_lbl = new Gtk.Label ("%s %s".printf (bullet, s.name)) { xalign = 0 };
-                var mem_lbl = new Gtk.Label (s.status == ServiceStatus.RUNNING ? s.metrics.format_memory () : tr ("Stopped")) { xalign = 0 };
+                string mem_text = (s.status == ServiceStatus.RUNNING) ? s.metrics.format_memory () : tr ("Stopped");
+                string subtitle = (s.stack != "") ? "%s • %s".printf (mem_text, s.stack) : mem_text;
+                var mem_lbl = new Gtk.Label (subtitle) { xalign = 0 };
                 mem_lbl.get_style_context ().add_class ("dim-label");
 
                 box.pack_start (title_lbl, false, false, 0);
@@ -346,18 +359,23 @@ namespace Daemonette {
         }
 
         private void refresh_sidebar_metrics () {
-            int i = 0;
-            foreach (var s in service_manager.services) {
-                var row = sidebar_listbox.get_row_at_index (i);
-                if (row != null) {
-                    var box = (Gtk.Box) row.get_child ();
-                    var children = box.get_children ();
-                    if (children.length () > 1) {
-                        var mem_lbl = (Gtk.Label) children.nth_data (1);
-                        mem_lbl.label = (s.status == ServiceStatus.RUNNING) ? s.metrics.format_memory () : tr ("Stopped");
+            foreach (var child in sidebar_listbox.get_children ()) {
+                var row = (Gtk.ListBoxRow) child;
+                string? s_id = row.get_data ("service_id");
+                if (s_id == null) continue;
+                var s = service_manager.get_service (s_id);
+                if (s == null) continue;
+                var box = (Gtk.Box) row.get_child ();
+                var children = box.get_children ();
+                if (children.length () > 1) {
+                    var mem_lbl = (Gtk.Label) children.nth_data (1);
+                    string mem_text = (s.status == ServiceStatus.RUNNING) ? s.metrics.format_memory () : tr ("Stopped");
+                    if (s.stack != "") {
+                        mem_lbl.label = "%s • %s".printf (mem_text, s.stack);
+                    } else {
+                        mem_lbl.label = mem_text;
                     }
                 }
-                i++;
             }
         }
 
@@ -383,7 +401,14 @@ namespace Daemonette {
             var s = service_manager.get_service (current_service_id);
             if (s == null) return;
 
-            title_label.label = "<b>%s</b>".printf (GLib.Markup.escape_text (s.name));
+            if (s.stack != "") {
+                title_label.label = "<b>%s</b> <span size='small' foreground='#89b4fa'>(Stack: %s)</span>".printf (
+                    GLib.Markup.escape_text (s.name),
+                    GLib.Markup.escape_text (s.stack)
+                );
+            } else {
+                title_label.label = "<b>%s</b>".printf (GLib.Markup.escape_text (s.name));
+            }
 
             // Update status badge
             var ctx = status_badge.get_style_context ();

@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/GUI-GTK%2B_3.0-orange.svg" alt="GTK 3">
   <img src="https://img.shields.io/badge/bandeja-Ayatana_AppIndicator-purple.svg" alt="AppIndicator">
   <img src="https://img.shields.io/badge/compilación-Meson_%7C_Make-green.svg" alt="Build">
-  <img src="https://img.shields.io/badge/pruebas-24%2F24_pasando-brightgreen.svg" alt="Pruebas">
+  <img src="https://img.shields.io/badge/pruebas-31%2F31_pasando-brightgreen.svg" alt="Pruebas">
   <img src="https://img.shields.io/badge/licencia-MIT-blue.svg" alt="Licencia">
 </p>
 
@@ -51,6 +51,7 @@
 
 - **Consumo de Memoria Ultrarreducido:** Escrito en **Vala** con **GTK+ 3.0** y **GLib/GObject**, compilando directamente a código nativo en C. Consume únicamente **~6 MB de memoria privada** (`RssAnon`) y **~20–28 MB de RSS total** (donde la mayor parte son librerías compartidas de GTK y del sistema ya residentes en caché), frente a los 150–350+ MB de alternativas basadas en Electron.
 - **Cero Procesos Huérfanos (Aislamiento POSIX PGID):** Cada comando se ejecuta en su propio grupo de procesos (`setpgid`). Al detener un servicio (ej. `npm run dev`, `vite`, `fastapi`), se envía la señal de terminación a todo el árbol de subprocesos (`killpg`), garantizando que ningún puerto quede ocupado.
+- **Stacks y Agrupación de Servicios:** Agrupa microservicios, bases de datos, APIs backend y frontends web en Stacks organizados. Inicia, detén o reinicia entornos enteros con un solo clic desde el menú del tray, manteniendo intacto el control granular sobre cada servicio individual.
 - **Bandeja del Sistema Minimalista y Jerárquica:** Menú de estado rápido en el panel superior (GNOME, MATE, XFCE, Cinnamon) mediante Ayatana AppIndicator, con submenú dedicado para cada servicio registrado.
 - **Variantes de Comandos:** Soporte para ejecutar distintas variantes de un mismo servicio (ej. Modo Desarrollo, Modo E2E, Watcher de compilación, etc.) sin duplicar configuraciones base.
 - **Variables de Entorno en Cascada:** Carga automática y herencia de variables desde el sistema, archivos `.env` locales del proyecto y variables personalizadas por servicio o variante.

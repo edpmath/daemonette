@@ -9,6 +9,7 @@ namespace Daemonette.Tests {
         GLib.Test.add_func ("/core/process_runner/stop_terminates_pgid", test_stop_terminates_pgid);
         GLib.Test.add_func ("/core/process_runner/shell_and_path_resolution", test_shell_and_path_resolution);
         GLib.Test.add_func ("/core/process_runner/project_local_bins", test_project_local_bins);
+        GLib.Test.add_func ("/core/process_runner/stack_execution_and_status", test_stack_execution_and_status);
     }
 
     private void test_start_and_capture_output () {
@@ -154,6 +155,62 @@ namespace Daemonette.Tests {
         // Cleanup
         TestUtils.remove_test_directory_and_contents (node_bin_dir);
         TestUtils.remove_test_directory_and_contents (venv_bin_dir);
+        TestUtils.remove_test_directory_and_contents (tmp_dir);
+    }
+
+    private void test_stack_execution_and_status () {
+        string tmp_dir = TestUtils.make_test_directory ("daemonette_test_stack_exec_XXXXXX");
+        var mgr = new ServiceManager (tmp_dir);
+        var runner = new ProcessRunner (mgr);
+
+        var s1 = new ServiceDefinition ("srv_s1", "S1", tmp_dir, "sleep 10", "", "BatchStack");
+        var s2 = new ServiceDefinition ("srv_s2", "S2", tmp_dir, "sleep 10", "", "BatchStack");
+        mgr.add_service (s1);
+        mgr.add_service (s2);
+
+        // Initially stopped
+        assert_true (runner.get_stack_status ("BatchStack") == StackStatus.STOPPED);
+
+        // Start stack
+        runner.start_stack ("BatchStack");
+        assert_true (runner.is_running ("srv_s1"));
+        assert_true (runner.is_running ("srv_s2"));
+        assert_true (runner.get_stack_status ("BatchStack") == StackStatus.RUNNING);
+
+        // Stop one service manually -> PARTIALLY_RUNNING
+        var loop = new GLib.MainLoop ();
+        runner.status_changed.connect ((s_id, status) => {
+            if (s_id == "srv_s1" && status == ServiceStatus.STOPPED) {
+                loop.quit ();
+            }
+        });
+        GLib.Timeout.add (1500, () => {
+            loop.quit ();
+            return GLib.Source.REMOVE;
+        });
+
+        runner.stop_service ("srv_s1");
+        loop.run ();
+
+        assert_true (runner.get_stack_status ("BatchStack") == StackStatus.PARTIALLY_RUNNING);
+
+        // Stop stack
+        var loop2 = new GLib.MainLoop ();
+        runner.status_changed.connect ((s_id, status) => {
+            if (s_id == "srv_s2" && status == ServiceStatus.STOPPED) {
+                loop2.quit ();
+            }
+        });
+        GLib.Timeout.add (1500, () => {
+            loop2.quit ();
+            return GLib.Source.REMOVE;
+        });
+
+        runner.stop_stack ("BatchStack");
+        loop2.run ();
+
+        assert_true (runner.get_stack_status ("BatchStack") == StackStatus.STOPPED);
+
         TestUtils.remove_test_directory_and_contents (tmp_dir);
     }
 }

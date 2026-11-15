@@ -28,6 +28,33 @@ namespace Daemonette {
         }
     }
 
+    public enum StackStatus {
+        STOPPED,
+        STARTING,
+        RUNNING,
+        PARTIALLY_RUNNING,
+        STOPPING,
+        FAILED;
+
+        public string to_display_string () {
+            switch (this) {
+                case STARTING:
+                    return tr ("Starting...");
+                case RUNNING:
+                    return tr ("Running");
+                case PARTIALLY_RUNNING:
+                    return tr ("Partially Running");
+                case STOPPING:
+                    return tr ("Stopping...");
+                case FAILED:
+                    return tr ("Error / Stopped");
+                case STOPPED:
+                default:
+                    return tr ("Stopped");
+            }
+        }
+    }
+
     public class ProcessMetrics : Object {
         public uint64 memory_rss_bytes { get; set; default = 0; }
         public double cpu_percent { get; set; default = 0.0; }
@@ -102,6 +129,7 @@ namespace Daemonette {
     public class ServiceDefinition : Object {
         public string id { get; set; }
         public string name { get; set; }
+        public string stack { get; set; default = ""; }
         public string working_directory { get; set; }
         public string command { get; set; }
         public string url { get; set; default = ""; }
@@ -117,9 +145,10 @@ namespace Daemonette {
         public string? active_variant_id { get; set; default = null; }
         public ProcessMetrics metrics { get; set; }
 
-        public ServiceDefinition (string id, string name, string working_directory, string command, string url = "") {
+        public ServiceDefinition (string id, string name, string working_directory, string command, string url = "", string stack = "") {
             this.id = id;
             this.name = name;
+            this.stack = stack;
             this.working_directory = working_directory;
             this.command = command;
             this.url = url;
@@ -147,7 +176,7 @@ namespace Daemonette {
          */
         public ServiceDefinition clone_as_new (string new_name) {
             string new_id = "srv_" + GLib.Uuid.string_random ();
-            var copy = new ServiceDefinition (new_id, new_name, this.working_directory, this.command, this.url);
+            var copy = new ServiceDefinition (new_id, new_name, this.working_directory, this.command, this.url, this.stack);
             copy.use_shell = this.use_shell;
             copy.load_dotenv = this.load_dotenv;
             copy.auto_restart = this.auto_restart;

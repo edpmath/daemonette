@@ -11,6 +11,7 @@ namespace Daemonette {
 
         // Main form widgets
         private Gtk.Entry name_entry;
+        private Gtk.Entry stack_entry;
         private Gtk.FileChooserButton dir_chooser;
         private Gtk.Entry command_entry;
         private Gtk.Entry url_entry;
@@ -68,25 +69,44 @@ namespace Daemonette {
             name_entry.hexpand = true;
             grid.attach (name_entry, 1, 0, 1, 1);
 
+            // Stack (Optional)
+            grid.attach (new Gtk.Label (tr ("Stack (Optional):")) { xalign = 0 }, 0, 1, 1, 1);
+            stack_entry = new Gtk.Entry ();
+            stack_entry.placeholder_text = tr ("e.g. MyApp, E-Commerce, Backend Services...");
+            stack_entry.hexpand = true;
+            var completion = new Gtk.EntryCompletion ();
+            var list_store = new Gtk.ListStore (1, typeof (string));
+            foreach (var st in service_manager.get_stacks ()) {
+                Gtk.TreeIter iter;
+                list_store.append (out iter);
+                list_store.set (iter, 0, st, -1);
+            }
+            completion.set_model (list_store);
+            completion.set_text_column (0);
+            completion.inline_completion = true;
+            completion.popup_completion = true;
+            stack_entry.set_completion (completion);
+            grid.attach (stack_entry, 1, 1, 1, 1);
+
             // Working directory
-            grid.attach (new Gtk.Label (tr ("Working Directory:")) { xalign = 0 }, 0, 1, 1, 1);
+            grid.attach (new Gtk.Label (tr ("Working Directory:")) { xalign = 0 }, 0, 2, 1, 1);
             dir_chooser = new Gtk.FileChooserButton (tr ("Select project directory"), Gtk.FileChooserAction.SELECT_FOLDER);
             dir_chooser.hexpand = true;
-            grid.attach (dir_chooser, 1, 1, 1, 1);
+            grid.attach (dir_chooser, 1, 2, 1, 1);
 
             // Command
-            grid.attach (new Gtk.Label (tr ("Main Command:")) { xalign = 0 }, 0, 2, 1, 1);
+            grid.attach (new Gtk.Label (tr ("Main Command:")) { xalign = 0 }, 0, 3, 1, 1);
             command_entry = new Gtk.Entry ();
             command_entry.placeholder_text = tr ("e.g. quasar dev, npm run dev, python main.py");
             command_entry.hexpand = true;
-            grid.attach (command_entry, 1, 2, 1, 1);
+            grid.attach (command_entry, 1, 3, 1, 1);
 
             // URL
-            grid.attach (new Gtk.Label (tr ("Local URL (Optional):")) { xalign = 0 }, 0, 3, 1, 1);
+            grid.attach (new Gtk.Label (tr ("Local URL (Optional):")) { xalign = 0 }, 0, 4, 1, 1);
             url_entry = new Gtk.Entry ();
             url_entry.placeholder_text = tr ("e.g. http://localhost:9000");
             url_entry.hexpand = true;
-            grid.attach (url_entry, 1, 3, 1, 1);
+            grid.attach (url_entry, 1, 4, 1, 1);
 
             general_box.pack_start (grid, false, false, 0);
 
@@ -179,6 +199,7 @@ namespace Daemonette {
             }
 
             name_entry.text = target_service.name;
+            stack_entry.text = target_service.stack;
             if (target_service.working_directory.strip () != "") {
                 dir_chooser.set_filename (target_service.working_directory);
             }
@@ -323,6 +344,7 @@ namespace Daemonette {
             }
 
             string name = name_entry.text.strip ();
+            string stack = stack_entry.text.strip ();
             string cmd = command_entry.text.strip ();
             string dir = dir_chooser.get_filename () ?? "";
             string url = url_entry.text.strip ();
@@ -333,13 +355,13 @@ namespace Daemonette {
             }
 
             if (is_edit_mode && target_service != null) {
-                apply_service_updates (target_service, name, cmd, dir, url);
+                apply_service_updates (target_service, name, stack, cmd, dir, url);
                 service_manager.update_service (target_service);
                 destroy ();
                 return;
             }
 
-            save_new_service (name, cmd, dir, url);
+            save_new_service (name, stack, cmd, dir, url);
             destroy ();
         }
 
@@ -355,8 +377,9 @@ namespace Daemonette {
             error_diag.destroy ();
         }
 
-        private void apply_service_updates (ServiceDefinition service, string name, string cmd, string dir, string url) {
+        private void apply_service_updates (ServiceDefinition service, string name, string stack, string cmd, string dir, string url) {
             service.name = name;
+            service.stack = stack;
             service.command = cmd;
             service.working_directory = dir;
             service.url = url;
@@ -367,9 +390,9 @@ namespace Daemonette {
             service.variants = variants_list;
         }
 
-        private void save_new_service (string name, string cmd, string dir, string url) {
+        private void save_new_service (string name, string stack, string cmd, string dir, string url) {
             string new_id = "srv_" + GLib.Uuid.string_random ();
-            var new_service = new ServiceDefinition (new_id, name, dir, cmd, url);
+            var new_service = new ServiceDefinition (new_id, name, dir, cmd, url, stack);
             new_service.use_shell = shell_check.active;
             new_service.load_dotenv = dotenv_check.active;
             new_service.auto_restart = autorestart_check.active;

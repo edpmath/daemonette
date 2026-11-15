@@ -96,11 +96,23 @@ namespace Daemonette {
             // Service Status
             es_dict.set ("Starting...", "Iniciando...");
             es_dict.set ("Running", "En ejecución");
+            es_dict.set ("Partially Running", "Parcialmente en ejecución");
             es_dict.set ("Stopping...", "Deteniendo...");
             es_dict.set ("Error / Stopped", "Error / Detenido");
             es_dict.set ("Error / Crashed", "Error / Caído");
             es_dict.set ("Stopped", "Detenido");
             es_dict.set ("Inactive", "Inactivo");
+
+            // Stacks
+            es_dict.set ("Stack", "Stack");
+            es_dict.set ("Stack:", "Stack:");
+            es_dict.set ("Stack (Optional):", "Stack (Opcional):");
+            es_dict.set ("e.g. MyApp, E-Commerce, Backend Services...", "ej. MiApp, E-Commerce, Servicios Backend...");
+            es_dict.set ("▶ Start Stack", "▶ Iniciar Stack");
+            es_dict.set ("🛑 Stop Stack", "🛑 Detener Stack");
+            es_dict.set ("🔄 Restart Stack", "🔄 Reiniciar Stack");
+            es_dict.set ("Other Services", "Otros Servicios");
+            es_dict.set ("No Stack", "Sin Stack");
 
             // Tray Indicator Menu
             es_dict.set ("[●] %d active | Total RAM: %s", "[●] %d activo(s) | RAM total: %s");

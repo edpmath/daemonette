@@ -98,6 +98,50 @@ namespace Daemonette {
             return cloned;
         }
 
+        /**
+         * Returns a sorted list of unique stack names.
+         */
+        public Gee.ArrayList<string> get_stacks () {
+            var set = new Gee.TreeSet<string> ();
+            foreach (var s in services) {
+                if (s.stack != null && s.stack.strip () != "") {
+                    set.add (s.stack.strip ());
+                }
+            }
+            var list = new Gee.ArrayList<string> ();
+            foreach (var name in set) {
+                list.add (name);
+            }
+            return list;
+        }
+
+        /**
+         * Returns all services belonging to the specified stack.
+         */
+        public Gee.ArrayList<ServiceDefinition> get_services_by_stack (string stack_name) {
+            var result = new Gee.ArrayList<ServiceDefinition> ();
+            string trimmed = stack_name.strip ();
+            foreach (var s in services) {
+                if (s.stack != null && s.stack.strip () == trimmed) {
+                    result.add (s);
+                }
+            }
+            return result;
+        }
+
+        /**
+         * Returns all services that do not belong to any stack.
+         */
+        public Gee.ArrayList<ServiceDefinition> get_ungrouped_services () {
+            var result = new Gee.ArrayList<ServiceDefinition> ();
+            foreach (var s in services) {
+                if (s.stack == null || s.stack.strip () == "") {
+                    result.add (s);
+                }
+            }
+            return result;
+        }
+
         public void set_language (string lang) {
             if (settings.language != lang) {
                 settings.language = lang;
@@ -184,8 +228,14 @@ namespace Daemonette {
             string working_dir = s_obj.has_member ("working_directory") ? s_obj.get_string_member ("working_directory") : "";
             string command = s_obj.has_member ("command") ? s_obj.get_string_member ("command") : "";
             string url = s_obj.has_member ("url") ? s_obj.get_string_member ("url") : "";
+            string stack = "";
+            if (s_obj.has_member ("stack")) {
+                stack = s_obj.get_string_member ("stack");
+            } else if (s_obj.has_member ("group")) {
+                stack = s_obj.get_string_member ("group");
+            }
 
-            var service = new ServiceDefinition (id, name, working_dir, command, url);
+            var service = new ServiceDefinition (id, name, working_dir, command, url, stack);
 
             if (s_obj.has_member ("use_shell")) {
                 service.use_shell = s_obj.get_boolean_member ("use_shell");
@@ -305,6 +355,10 @@ namespace Daemonette {
             builder.add_string_value (s.command);
             builder.set_member_name ("url");
             builder.add_string_value (s.url);
+            if (s.stack != null && s.stack.strip () != "") {
+                builder.set_member_name ("stack");
+                builder.add_string_value (s.stack.strip ());
+            }
             builder.set_member_name ("use_shell");
             builder.add_boolean_value (s.use_shell);
             builder.set_member_name ("load_dotenv");

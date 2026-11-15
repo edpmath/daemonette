@@ -8,6 +8,8 @@ namespace Daemonette.Tests {
         GLib.Test.add_func ("/core/service_manager/parse_dotenv", test_parse_dotenv);
         GLib.Test.add_func ("/core/service_manager/crud_and_json_roundtrip", test_crud_and_json_roundtrip);
         GLib.Test.add_func ("/core/service_manager/duplicate_service", test_duplicate_service);
+        GLib.Test.add_func ("/core/service_manager/stacks_query_and_persistence", test_stacks_query_and_persistence);
+        GLib.Test.add_func ("/core/service_manager/legacy_group_deserialization", test_legacy_group_deserialization);
     }
 
     private void test_parse_dotenv () {
@@ -119,6 +121,93 @@ DATABASE_URL=postgres://localhost:5432/test
         I18n.get_instance ().set_language_mode ("system");
 
         // Cleanup
+        TestUtils.remove_test_directory_and_contents (tmp_dir);
+    }
+
+    private void test_stacks_query_and_persistence () {
+        string tmp_dir = TestUtils.make_test_directory ("daemonette_test_stacks_XXXXXX");
+        var mgr = new ServiceManager (tmp_dir);
+
+        var s_pg = new ServiceDefinition ("srv_pg", "Postgres", "/db", "pg_ctl start", "", "Ecommerce");
+        var s_api = new ServiceDefinition ("srv_api", "API", "/api", "npm run dev", "http://localhost:3000", "Ecommerce");
+        var s_web = new ServiceDefinition ("srv_web", "Frontend", "/web", "npm start", "http://localhost:8080", "Ecommerce");
+        var s_auth = new ServiceDefinition ("srv_auth", "Auth Svc", "/auth", "cargo run", "", "Platform");
+        var s_tool = new ServiceDefinition ("srv_tool", "Global Watcher", "/tools", "watch.sh");
+
+        mgr.add_service (s_pg);
+        mgr.add_service (s_api);
+        mgr.add_service (s_web);
+        mgr.add_service (s_auth);
+        mgr.add_service (s_tool);
+
+        // Verify get_stacks
+        var stacks = mgr.get_stacks ();
+        assert_true (stacks.size == 2);
+        assert_true (stacks.contains ("Ecommerce"));
+        assert_true (stacks.contains ("Platform"));
+
+        // Verify get_services_by_stack
+        var ecom_services = mgr.get_services_by_stack ("Ecommerce");
+        assert_true (ecom_services.size == 3);
+        assert_true (ecom_services.get (0).name == "Postgres");
+        assert_true (ecom_services.get (1).name == "API");
+        assert_true (ecom_services.get (2).name == "Frontend");
+
+        var plat_services = mgr.get_services_by_stack ("Platform");
+        assert_true (plat_services.size == 1);
+        assert_true (plat_services.get (0).name == "Auth Svc");
+
+        // Verify get_ungrouped_services
+        var ungrouped = mgr.get_ungrouped_services ();
+        assert_true (ungrouped.size == 1);
+        assert_true (ungrouped.get (0).name == "Global Watcher");
+
+        // Reload from disk to verify JSON persistence of stack
+        var mgr_reload = new ServiceManager (tmp_dir);
+        bool loaded = mgr_reload.load_from_json ();
+        assert_true (loaded);
+        assert_true (mgr_reload.get_stacks ().size == 2);
+        assert_true (mgr_reload.get_services_by_stack ("Ecommerce").size == 3);
+        assert_true (mgr_reload.get_services_by_stack ("Platform").size == 1);
+        assert_true (mgr_reload.get_ungrouped_services ().size == 1);
+
+        TestUtils.remove_test_directory_and_contents (tmp_dir);
+    }
+
+    private void test_legacy_group_deserialization () {
+        string tmp_dir = TestUtils.make_test_directory ("daemonette_test_legacy_XXXXXX");
+        string json_path = GLib.Path.build_filename (tmp_dir, "services.json");
+
+        string json_content = """{
+  "version": 1,
+  "services": [
+    {
+      "id": "srv_legacy",
+      "name": "Legacy DB",
+      "working_directory": "/tmp",
+      "command": "true",
+      "group": "LegacyStack"
+    }
+  ]
+}""";
+
+        try {
+            GLib.FileUtils.set_contents (json_path, json_content);
+        } catch (GLib.Error e) {
+            GLib.error ("No se pudo escribir JSON de prueba: %s", e.message);
+        }
+
+        var mgr = new ServiceManager (tmp_dir);
+        bool loaded = mgr.load_from_json ();
+        assert_true (loaded);
+        assert_true (mgr.services.size == 1);
+
+        var s = mgr.get_service ("srv_legacy");
+        assert_true (s != null);
+        assert_true (s.stack == "LegacyStack");
+        assert_true (mgr.get_stacks ().size == 1);
+        assert_true (mgr.get_stacks ().get (0) == "LegacyStack");
+
         TestUtils.remove_test_directory_and_contents (tmp_dir);
     }
 }

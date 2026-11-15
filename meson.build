@@ -1,5 +1,5 @@
 project('daemonette', ['c', 'vala'],
-  version : '1.2.1',
+  version : '1.3.0',
   default_options : ['warning_level=3'])
 dependencies = [
     dependency('glib-2.0'),
