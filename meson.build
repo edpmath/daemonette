@@ -18,6 +18,7 @@ core_sources = files(
   'src/core/i18n.vala',
   'src/core/log_buffer.vala',
   'src/core/service_manager.vala',
+  'src/core/docker_runner.vala',
   'src/core/terminal_launcher.vala',
   'src/core/process_runner.vala',
   'src/core/resource_monitor.vala',
@@ -57,12 +58,13 @@ install_data('data/icons/hicolor/256x256/apps/daemonette.png',
 install_data('data/icons/hicolor/512x512/apps/daemonette.png',
   install_dir : get_option('datadir') / 'icons/hicolor/512x512/apps')
 
-test_sources = core_sources + files(
+test_sources = core_sources + ui_sources + files(
   'tests/test_utils.vala',
   'tests/test_models.vala',
   'tests/test_i18n.vala',
   'tests/test_log_buffer.vala',
   'tests/test_service_manager.vala',
+  'tests/test_docker_runner.vala',
   'tests/test_process_runner.vala',
   'tests/test_ansi_parser.vala',
   'tests/test_runner.vala',

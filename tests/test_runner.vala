@@ -16,6 +16,7 @@ namespace Daemonette.Tests {
         register_i18n_tests ();
         register_log_buffer_tests ();
         register_service_manager_tests ();
+        register_docker_runner_tests ();
         register_process_runner_tests ();
         register_ansi_parser_tests ();
 

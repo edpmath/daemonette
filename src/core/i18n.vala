@@ -114,6 +114,26 @@ namespace Daemonette {
             es_dict.set ("Other Services", "Otros Servicios");
             es_dict.set ("No Stack", "Sin Stack");
 
+            // Docker & Service Types
+            es_dict.set ("Docker Container", "Contenedor Docker");
+            es_dict.set ("Docker Compose", "Docker Compose");
+            es_dict.set ("Local Process", "Proceso Local");
+            es_dict.set ("Local Process (Command)", "Proceso local (Comando)");
+            es_dict.set ("Docker is not available on this system.", "Docker no está disponible en este sistema.");
+            es_dict.set ("Container stopped or failed", "El contenedor se detuvo o falló");
+            es_dict.set ("Service Type:", "Tipo de servicio:");
+            es_dict.set ("Docker Compose File:", "Archivo Docker Compose:");
+            es_dict.set ("Select Compose File (*.yml, *.yaml)", "Seleccionar archivo Compose (*.yml, *.yaml)");
+            es_dict.set ("Subservice (Optional):", "Subservicio (Opcional):");
+            es_dict.set ("Leave empty for all services in Compose", "Dejar vacío para todos los servicios del Compose");
+            es_dict.set ("Container Name / ID:", "Nombre / ID del contenedor:");
+            es_dict.set ("Docker Run Command (Optional):", "Comando Docker Run (Opcional):");
+            es_dict.set ("Browse...", "Examinar...");
+            es_dict.set ("Please specify at least the service name and compose file or directory.", "Por favor especifica al menos el nombre y el archivo compose o directorio.");
+            es_dict.set ("Please specify at least the service name and container name or run command.", "Por favor especifica al menos el nombre y el contenedor o comando run.");
+            es_dict.set ("▶ Start Compose (up -d)", "▶ Iniciar Compose (up -d)");
+            es_dict.set ("▶ Start Container", "▶ Iniciar Contenedor");
+
             // Tray Indicator Menu
             es_dict.set ("[●] %d active | Total RAM: %s", "[●] %d activo(s) | RAM total: %s");
             es_dict.set ("[○] 0 active (Idle)", "[○] 0 activos (Inactivo)");
@@ -190,6 +210,10 @@ namespace Daemonette {
             es_dict.set ("Create a copy of this service", "Crear una copia de este servicio");
             es_dict.set ("Delete", "Eliminar");
             es_dict.set ("Add Variant", "Agregar Variante");
+            es_dict.set ("Edit Variant", "Editar Variante");
+            es_dict.set ("Edit this variant", "Editar esta variante");
+            es_dict.set ("Icon / Emoji:", "Ícono / Emoji:");
+            es_dict.set ("Variant", "Variante");
             es_dict.set ("Add", "Agregar");
             es_dict.set ("Variant name:", "Nombre de la variante:");
             es_dict.set ("Name (e.g. E2E Mode)", "Nombre (ej. Modo E2E)");
@@ -203,6 +227,7 @@ namespace Daemonette {
             es_dict.set ("This action cannot be undone.", "Esta acción no se puede deshacer.");
             es_dict.set ("Delete Permanently", "Eliminar permanentemente");
             es_dict.set ("Please specify at least the service name and command.", "Por favor especifica al menos el nombre y el comando del servicio.");
+            es_dict.set ("Please specify at least the service name.", "Por favor especifica al menos el nombre del servicio.");
 
             // Notifications
             es_dict.set ("Service Crashed: %s", "Servicio caído: %s");

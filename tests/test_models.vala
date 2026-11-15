@@ -7,8 +7,11 @@ namespace Daemonette.Tests {
     public void register_models_tests () {
         GLib.Test.add_func ("/models/service_definition/defaults", test_service_definition_defaults);
         GLib.Test.add_func ("/models/service_definition/stack_property", test_service_definition_stack_property);
+        GLib.Test.add_func ("/models/service_definition/docker_properties", test_service_definition_docker_properties);
+        GLib.Test.add_func ("/models/service_variant/editing_and_icons", test_service_variant_editing_and_icons);
         GLib.Test.add_func ("/models/service_definition/find_variant", test_find_variant);
         GLib.Test.add_func ("/models/service_definition/clone_as_new", test_clone_as_new);
+        GLib.Test.add_func ("/models/service_type/enum_conversion", test_service_type_enum);
         GLib.Test.add_func ("/models/process_metrics/formatting", test_process_metrics_formatting);
         GLib.Test.add_func ("/models/process_metrics/reset", test_process_metrics_reset);
         GLib.Test.add_func ("/models/service_status/display_string", test_service_status_display_string);
@@ -33,6 +36,41 @@ namespace Daemonette.Tests {
         assert_true (s.active_variant_id == null);
         assert_true (s.variants.size == 0);
         assert_true (s.environment.size == 0);
+        assert_true (s.service_type == ServiceType.PROCESS);
+        assert_true (s.compose_file == "");
+        assert_true (s.compose_service == "");
+        assert_true (s.container_name == "");
+    }
+
+    private void test_service_definition_docker_properties () {
+        var s = new ServiceDefinition ("srv_compose", "Infra Stack", "/home/app", "", "", "MyStack", ServiceType.COMPOSE, "docker-compose.yml", "db", "app-db");
+        assert_true (s.service_type == ServiceType.COMPOSE);
+        assert_true (s.compose_file == "docker-compose.yml");
+        assert_true (s.compose_service == "db");
+        assert_true (s.container_name == "app-db");
+
+        s.service_type = ServiceType.DOCKER;
+        assert_true (s.service_type == ServiceType.DOCKER);
+    }
+
+    private void test_service_type_enum () {
+        assert_true (ServiceType.PROCESS.to_string_id () == "process");
+        assert_true (ServiceType.DOCKER.to_string_id () == "docker");
+        assert_true (ServiceType.COMPOSE.to_string_id () == "compose");
+
+        assert_true (ServiceType.from_string_id ("docker") == ServiceType.DOCKER);
+        assert_true (ServiceType.from_string_id ("container") == ServiceType.DOCKER);
+        assert_true (ServiceType.from_string_id ("compose") == ServiceType.COMPOSE);
+        assert_true (ServiceType.from_string_id ("docker-compose") == ServiceType.COMPOSE);
+        assert_true (ServiceType.from_string_id ("docker_compose") == ServiceType.COMPOSE);
+        assert_true (ServiceType.from_string_id ("process") == ServiceType.PROCESS);
+        assert_true (ServiceType.from_string_id ("native") == ServiceType.PROCESS);
+        assert_true (ServiceType.from_string_id (null) == ServiceType.PROCESS);
+        assert_true (ServiceType.from_string_id ("random_invalid") == ServiceType.PROCESS);
+
+        assert_true (ServiceType.PROCESS.to_display_string () != "");
+        assert_true (ServiceType.DOCKER.to_display_string () != "");
+        assert_true (ServiceType.COMPOSE.to_display_string () != "");
     }
 
     private void test_service_definition_stack_property () {
@@ -40,6 +78,35 @@ namespace Daemonette.Tests {
         assert_true (s.stack == "Ecommerce");
         s.stack = "Fullstack";
         assert_true (s.stack == "Fullstack");
+    }
+
+    private void test_service_variant_editing_and_icons () {
+        var v = new ServiceVariant ("var_1", "Test Mode", "npm test");
+        assert_true (v.icon == "⚡");
+        assert_true (v.name == "Test Mode");
+        assert_true (v.command == "npm test");
+
+        // Test editing variant properties
+        v.name = "Unit Testing";
+        v.command = "npm run test:unit";
+        v.icon = "🧪";
+        v.url = "http://localhost:8080/coverage";
+        v.use_shell = false;
+
+        assert_true (v.name == "Unit Testing");
+        assert_true (v.command == "npm run test:unit");
+        assert_true (v.icon == "🧪");
+        assert_true (v.url == "http://localhost:8080/coverage");
+        assert_true (v.use_shell == false);
+
+        // Test cloning retains edited properties including custom icon
+        var clone = v.clone ();
+        assert_true (clone.id == v.id);
+        assert_true (clone.name == "Unit Testing");
+        assert_true (clone.command == "npm run test:unit");
+        assert_true (clone.icon == "🧪");
+        assert_true (clone.url == "http://localhost:8080/coverage");
+        assert_true (clone.use_shell == false);
     }
 
     private void test_find_variant () {
@@ -63,7 +130,7 @@ namespace Daemonette.Tests {
     }
 
     private void test_clone_as_new () {
-        var s = new ServiceDefinition ("srv_original", "Worker", "/worker", "python run.py", "", "DataPipeline");
+        var s = new ServiceDefinition ("srv_original", "Worker", "/worker", "python run.py", "", "DataPipeline", ServiceType.COMPOSE, "compose.yml", "worker", "worker-cnt");
         s.environment.set ("PORT", "8080");
         s.variants.add (new ServiceVariant ("var_orig", "Debug", "python run.py --debug"));
 
@@ -73,6 +140,10 @@ namespace Daemonette.Tests {
         assert_true (clone.id.has_prefix ("srv_"));
         assert_true (clone.name == "Worker Copy");
         assert_true (clone.stack == "DataPipeline");
+        assert_true (clone.service_type == ServiceType.COMPOSE);
+        assert_true (clone.compose_file == "compose.yml");
+        assert_true (clone.compose_service == "worker");
+        assert_true (clone.container_name == "worker-cnt");
         assert_true (clone.working_directory == s.working_directory);
         assert_true (clone.command == s.command);
         assert_true (clone.environment.get ("PORT") == "8080");

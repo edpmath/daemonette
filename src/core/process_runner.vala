@@ -38,6 +38,10 @@ namespace Daemonette {
             this.service_manager = service_manager;
             this.active_processes = new Gee.HashMap<string, ActiveProcess> ();
             this.log_buffers = new Gee.HashMap<string, LogRingBuffer> ();
+
+            this.service_manager.services_reloaded.connect (() => {
+                sync_docker_services_status ();
+            });
         }
 
         public LogRingBuffer get_log_buffer (string service_id) {
@@ -49,7 +53,14 @@ namespace Daemonette {
         }
 
         public bool is_running (string service_id) {
-            return active_processes.has_key (service_id);
+            if (active_processes.has_key (service_id)) {
+                return true;
+            }
+            var s = service_manager.get_service (service_id);
+            if (s != null && (s.service_type == ServiceType.COMPOSE || s.service_type == ServiceType.DOCKER)) {
+                return s.status == ServiceStatus.RUNNING || s.status == ServiceStatus.STARTING;
+            }
+            return false;
         }
 
         public int get_pid (string service_id) {
@@ -73,6 +84,10 @@ namespace Daemonette {
             if (is_running (service.id)) {
                 GLib.warning ("Service '%s' is already running.", service.name);
                 return false;
+            }
+
+            if (service.service_type == ServiceType.COMPOSE || service.service_type == ServiceType.DOCKER) {
+                return start_docker_service (service, variant_id);
             }
 
             service.status = ServiceStatus.STARTING;
@@ -129,11 +144,16 @@ namespace Daemonette {
             status_changed (service.id, service.status);
 
             var buffer = get_log_buffer (service.id);
+            string variant_tag = "";
+            if (variant != null) {
+                string v_icon = (variant.icon != null && variant.icon.strip () != "") ? variant.icon.strip () : "⚡";
+                variant_tag = " | %s %s".printf (v_icon, variant.name);
+            }
             string header_info = "--- [Started: %s | PID: %d | PGID: %d%s] ---".printf (
                 service.name,
                 pid,
                 pgid,
-                variant != null ? " | Variant: " + variant.name : ""
+                variant_tag
             );
             buffer.append (header_info, false);
             output_received (service.id, header_info, false);
@@ -415,6 +435,12 @@ namespace Daemonette {
          * followed by SIGKILL if it does not exit within the grace timeout.
          */
         public void stop_service (string service_id) {
+            var service = service_manager.get_service (service_id);
+            if (service != null && (service.service_type == ServiceType.COMPOSE || service.service_type == ServiceType.DOCKER)) {
+                stop_docker_service (service);
+                return;
+            }
+
             if (!active_processes.has_key (service_id)) {
                 return;
             }
@@ -422,7 +448,6 @@ namespace Daemonette {
             var active = active_processes.get (service_id);
             active.stopping_manually = true;
 
-            var service = service_manager.get_service (service_id);
             if (service != null) {
                 service.status = ServiceStatus.STOPPING;
                 status_changed (service_id, service.status);
@@ -638,6 +663,246 @@ namespace Daemonette {
                 notif.set_body (reason);
                 notif.set_icon (new GLib.ThemedIcon ("dialog-warning"));
                 app.send_notification ("crash_" + service.id, notif);
+            }
+        }
+
+        /* -------------------------------------------------------------
+         * Docker & Docker Compose Lifecycle Support
+         * ------------------------------------------------------------- */
+
+        private bool start_docker_service (ServiceDefinition service, string? variant_id = null) {
+            if (is_running (service.id)) {
+                GLib.warning ("Service '%s' is already running.", service.name);
+                return false;
+            }
+
+            if (!DockerRunner.is_docker_available ()) {
+                string err_msg = tr ("Docker is not available on this system.");
+                GLib.warning ("%s", err_msg);
+                var buffer = get_log_buffer (service.id);
+                buffer.append ("--- [Error: %s] ---".printf (err_msg), true);
+                output_received (service.id, err_msg, true);
+                service.status = ServiceStatus.FAILED;
+                status_changed (service.id, service.status);
+                return false;
+            }
+
+            service.status = ServiceStatus.STARTING;
+            status_changed (service.id, service.status);
+
+            string[]? start_argv = null;
+            if (service.service_type == ServiceType.COMPOSE) {
+                start_argv = DockerRunner.build_compose_argv (service, "up", { "-d" });
+            } else {
+                start_argv = DockerRunner.build_docker_start_argv (service);
+            }
+
+            if (start_argv == null) {
+                service.status = ServiceStatus.FAILED;
+                status_changed (service.id, service.status);
+                return false;
+            }
+
+            var buffer = get_log_buffer (service.id);
+            string start_header = "--- [Starting: %s (%s)] ---".printf (service.name, service.service_type.to_display_string ());
+            buffer.append (start_header, false);
+            output_received (service.id, start_header, false);
+
+            execute_docker_start.begin (service, start_argv, variant_id);
+            return true;
+        }
+
+        private async void execute_docker_start (ServiceDefinition service, string[] start_argv, string? variant_id) {
+            var buffer = get_log_buffer (service.id);
+            int exit_code = -1;
+            string stdout_str = "";
+            string stderr_str = "";
+
+            try {
+                var launcher = new GLib.SubprocessLauncher (GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_PIPE);
+                if (service.working_directory != null && service.working_directory.strip () != "") {
+                    launcher.set_cwd (service.working_directory);
+                }
+
+                var subp = launcher.spawnv (start_argv);
+                yield subp.communicate_utf8_async (null, null, out stdout_str, out stderr_str);
+
+                if (stdout_str != null && stdout_str.strip () != "") {
+                    foreach (var line in stdout_str.strip ().split ("\n")) {
+                        buffer.append (line, false);
+                        output_received (service.id, line, false);
+                    }
+                }
+                if (stderr_str != null && stderr_str.strip () != "") {
+                    foreach (var line in stderr_str.strip ().split ("\n")) {
+                        buffer.append (line, true);
+                        output_received (service.id, line, true);
+                    }
+                }
+
+                exit_code = subp.get_exit_status ();
+            } catch (GLib.Error e) {
+                string err_text = "Error starting docker: %s".printf (e.message);
+                buffer.append (err_text, true);
+                output_received (service.id, err_text, true);
+                exit_code = -1;
+            }
+
+            if (exit_code != 0) {
+                service.status = ServiceStatus.FAILED;
+                status_changed (service.id, service.status);
+                return;
+            }
+
+            service.status = ServiceStatus.RUNNING;
+            service.active_variant_id = variant_id;
+            service.metrics.reset ();
+            service.metrics.started_at = new GLib.DateTime.now_local ();
+            status_changed (service.id, service.status);
+
+            string ready_msg = "--- [Started: %s] ---".printf (service.name);
+            buffer.append (ready_msg, false);
+            output_received (service.id, ready_msg, false);
+
+            spawn_docker_log_follower (service);
+        }
+
+        private void spawn_docker_log_follower (ServiceDefinition service) {
+            string[]? log_argv = null;
+            if (service.service_type == ServiceType.COMPOSE) {
+                log_argv = DockerRunner.build_compose_argv (service, "logs", { "-f", "--tail", "50" });
+            } else {
+                log_argv = DockerRunner.build_docker_argv (service, "logs", { "-f", "--tail", "50" });
+            }
+
+            if (log_argv == null) {
+                return;
+            }
+
+            var buffer = get_log_buffer (service.id);
+            try {
+                var launcher = new GLib.SubprocessLauncher (GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_PIPE);
+                if (service.working_directory != null && service.working_directory.strip () != "") {
+                    launcher.set_cwd (service.working_directory);
+                }
+                launcher.set_child_setup (() => {
+                    Posix.setpgid (0, 0);
+                });
+
+                var subp = launcher.spawnv (log_argv);
+                int pid = int.parse (subp.get_identifier ());
+                int pgid = pid;
+
+                var active = new ActiveProcess (service.id, subp, pid, pgid);
+                active_processes.set (service.id, active);
+
+                attach_stream_readers (service.id, subp, buffer, active.cancellable);
+                wait_for_docker_log_exit.begin (service, subp, active);
+            } catch (GLib.Error e) {
+                GLib.warning ("Failed to attach log stream for '%s': %s", service.name, e.message);
+            }
+        }
+
+        private async void wait_for_docker_log_exit (ServiceDefinition service, GLib.Subprocess subp, ActiveProcess active) {
+            try {
+                yield subp.wait_async (active.cancellable);
+            } catch (GLib.Error e) {
+                // Cancelled intentionally
+            }
+
+            if (active_processes.has_key (service.id) && active_processes.get (service.id) == active) {
+                active_processes.unset (service.id);
+            }
+
+            if (!active.stopping_manually) {
+                ServiceStatus cur_status = DockerRunner.query_service_status (service);
+                service.status = cur_status;
+                service.metrics.reset ();
+                status_changed (service.id, service.status);
+
+                if (cur_status == ServiceStatus.FAILED) {
+                    notify_crash (service, tr ("Container stopped or failed"));
+                    service_crashed (service, -1, 0);
+                    if (service.auto_restart) {
+                        schedule_crash_auto_restart (service);
+                    }
+                }
+            }
+        }
+
+        private void stop_docker_service (ServiceDefinition service) {
+            service.status = ServiceStatus.STOPPING;
+            status_changed (service.id, service.status);
+
+            if (active_processes.has_key (service.id)) {
+                var active = active_processes.get (service.id);
+                active.stopping_manually = true;
+                active.cancellable.cancel ();
+                if (active.pgid > 0) {
+                    Posix.killpg (active.pgid, Posix.Signal.TERM);
+                }
+                active_processes.unset (service.id);
+            }
+
+            string[]? stop_argv = null;
+            if (service.service_type == ServiceType.COMPOSE) {
+                stop_argv = DockerRunner.build_compose_argv (service, "stop");
+            } else {
+                stop_argv = DockerRunner.build_docker_argv (service, "stop", { "-t", "5" });
+            }
+
+            if (stop_argv != null) {
+                execute_docker_stop.begin (service, stop_argv);
+            } else {
+                service.status = ServiceStatus.STOPPED;
+                service.metrics.reset ();
+                status_changed (service.id, service.status);
+            }
+        }
+
+        private async void execute_docker_stop (ServiceDefinition service, string[] stop_argv) {
+            var buffer = get_log_buffer (service.id);
+            try {
+                var launcher = new GLib.SubprocessLauncher (GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_PIPE);
+                if (service.working_directory != null && service.working_directory.strip () != "") {
+                    launcher.set_cwd (service.working_directory);
+                }
+                var subp = launcher.spawnv (stop_argv);
+                yield subp.wait_async (null);
+            } catch (GLib.Error e) {
+                GLib.warning ("Error stopping docker service %s: %s", service.name, e.message);
+            }
+
+            service.status = ServiceStatus.STOPPED;
+            service.metrics.reset ();
+            status_changed (service.id, service.status);
+
+            string stop_msg = "--- [Stopped: %s] ---".printf (service.name);
+            buffer.append (stop_msg, false);
+            output_received (service.id, stop_msg, false);
+        }
+
+        /**
+         * Refreshes the status of all Docker and Compose services from the Docker daemon.
+         */
+        public void sync_docker_services_status () {
+            if (!DockerRunner.is_docker_available ()) {
+                return;
+            }
+
+            foreach (var service in service_manager.services) {
+                if (service.service_type == ServiceType.COMPOSE || service.service_type == ServiceType.DOCKER) {
+                    if (service.status != ServiceStatus.STARTING && service.status != ServiceStatus.STOPPING) {
+                        ServiceStatus current = DockerRunner.query_service_status (service);
+                        if (current != service.status) {
+                            service.status = current;
+                            if (current == ServiceStatus.RUNNING && !active_processes.has_key (service.id)) {
+                                spawn_docker_log_follower (service);
+                            }
+                            status_changed (service.id, service.status);
+                        }
+                    }
+                }
             }
         }
     }

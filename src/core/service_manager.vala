@@ -237,6 +237,22 @@ namespace Daemonette {
 
             var service = new ServiceDefinition (id, name, working_dir, command, url, stack);
 
+            if (s_obj.has_member ("service_type")) {
+                service.service_type = ServiceType.from_string_id (s_obj.get_string_member ("service_type"));
+            } else if (s_obj.has_member ("type")) {
+                service.service_type = ServiceType.from_string_id (s_obj.get_string_member ("type"));
+            }
+
+            if (s_obj.has_member ("compose_file")) {
+                service.compose_file = s_obj.get_string_member ("compose_file");
+            }
+            if (s_obj.has_member ("compose_service")) {
+                service.compose_service = s_obj.get_string_member ("compose_service");
+            }
+            if (s_obj.has_member ("container_name")) {
+                service.container_name = s_obj.get_string_member ("container_name");
+            }
+
             if (s_obj.has_member ("use_shell")) {
                 service.use_shell = s_obj.get_boolean_member ("use_shell");
             }
@@ -276,8 +292,9 @@ namespace Daemonette {
             string v_cmd = v_obj.has_member ("command") ? v_obj.get_string_member ("command") : "";
             string v_url = v_obj.has_member ("url") ? v_obj.get_string_member ("url") : "";
             bool v_shell = v_obj.has_member ("use_shell") ? v_obj.get_boolean_member ("use_shell") : true;
+            string v_icon = v_obj.has_member ("icon") ? v_obj.get_string_member ("icon") : "⚡";
 
-            var variant = new ServiceVariant (v_id, v_name, v_cmd, v_url, v_shell);
+            var variant = new ServiceVariant (v_id, v_name, v_cmd, v_url, v_shell, v_icon);
 
             if (v_obj.has_member ("environment")) {
                 var v_env_obj = v_obj.get_object_member ("environment");
@@ -359,6 +376,21 @@ namespace Daemonette {
                 builder.set_member_name ("stack");
                 builder.add_string_value (s.stack.strip ());
             }
+            builder.set_member_name ("service_type");
+            builder.add_string_value (s.service_type.to_string_id ());
+
+            if (s.compose_file != null && s.compose_file.strip () != "") {
+                builder.set_member_name ("compose_file");
+                builder.add_string_value (s.compose_file.strip ());
+            }
+            if (s.compose_service != null && s.compose_service.strip () != "") {
+                builder.set_member_name ("compose_service");
+                builder.add_string_value (s.compose_service.strip ());
+            }
+            if (s.container_name != null && s.container_name.strip () != "") {
+                builder.set_member_name ("container_name");
+                builder.add_string_value (s.container_name.strip ());
+            }
             builder.set_member_name ("use_shell");
             builder.add_boolean_value (s.use_shell);
             builder.set_member_name ("load_dotenv");
@@ -396,6 +428,8 @@ namespace Daemonette {
             builder.add_string_value (v.command);
             builder.set_member_name ("url");
             builder.add_string_value (v.url);
+            builder.set_member_name ("icon");
+            builder.add_string_value (v.icon != null && v.icon.strip () != "" ? v.icon.strip () : "⚡");
             builder.set_member_name ("use_shell");
             builder.add_boolean_value (v.use_shell);
 

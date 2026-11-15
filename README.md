@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/GUI-GTK%2B_3.0-orange.svg" alt="GTK 3">
   <img src="https://img.shields.io/badge/tray-Ayatana_AppIndicator-purple.svg" alt="AppIndicator">
   <img src="https://img.shields.io/badge/build-Meson_%7C_Make-green.svg" alt="Build">
-  <img src="https://img.shields.io/badge/tests-31%2F31_passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-41%2F41_passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
 </p>
 
@@ -51,7 +51,8 @@
 
 - **Ultra-Low Memory Footprint:** Written in **Vala** with **GTK+ 3.0** and **GLib/GObject**, compiling directly to native C binaries. Consumes only **~6 MB of private memory** (`RssAnon`) and **~20–28 MB total RSS** (the bulk of which are shared GTK/system libraries already cached in RAM), compared to 150–350+ MB for Electron-based tools.
 - **Zero Orphan Processes (POSIX PGID Isolation):** Every spawned process runs in its own dedicated process group (`setpgid`). Stopping a service (e.g. `npm run dev`, `vite`, `fastapi`, `cargo watch`) issues a termination signal to the entire process group tree (`killpg`), ensuring no ports are left bound.
-- **Service Stacks / Grouping:** Group related microservices, databases, backend APIs, and web frontends into named Stacks. Start, stop, or restart entire application environments with a single click from the tray menu, while preserving granular individual control over each service.
+- **Native Docker & Docker Compose Integration:** First-class support for Docker Compose projects (`docker compose up -d`, `stop`, `restart`, `logs -f`, `ps`) and standalone Docker containers (`docker start/stop`). Transparently interoperable with both **Docker Desktop** and native **Docker Engine**.
+- **Service Stacks / Grouping:** Group related microservices, databases, backend APIs, and web frontends into named Stacks. Start, stop, or restart entire application environments with a single click from the tray menu, while preserving granular individual control over each service. Mix Docker containers, Compose projects, and native host processes under the same Stack!
 - **Minimalist & Dynamic System Tray Menu:** Clean status indicators directly in the desktop top/bottom bar (GNOME, MATE, XFCE, Cinnamon) via Ayatana AppIndicator, with dynamic submenus for each registered service.
 - **Command Variants:** Configure multiple execution profiles for the same service (e.g., Development mode, E2E testing, Build watcher) sharing the same working directory and base configuration.
 - **Cascading Environment Variables:** Automatically loads and resolves `.env` files from project directories, cascading on top of system environment variables and per-service custom key-value pairs.

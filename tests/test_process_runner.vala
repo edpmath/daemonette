@@ -10,6 +10,7 @@ namespace Daemonette.Tests {
         GLib.Test.add_func ("/core/process_runner/shell_and_path_resolution", test_shell_and_path_resolution);
         GLib.Test.add_func ("/core/process_runner/project_local_bins", test_project_local_bins);
         GLib.Test.add_func ("/core/process_runner/stack_execution_and_status", test_stack_execution_and_status);
+        GLib.Test.add_func ("/core/process_runner/mixed_docker_and_process_stack", test_mixed_docker_and_process_stack);
     }
 
     private void test_start_and_capture_output () {
@@ -210,6 +211,38 @@ namespace Daemonette.Tests {
         loop2.run ();
 
         assert_true (runner.get_stack_status ("BatchStack") == StackStatus.STOPPED);
+
+        TestUtils.remove_test_directory_and_contents (tmp_dir);
+    }
+
+    private void test_mixed_docker_and_process_stack () {
+        string tmp_dir = TestUtils.make_test_directory ("daemonette_test_mixed_stack_XXXXXX");
+        var mgr = new ServiceManager (tmp_dir);
+        var runner = new ProcessRunner (mgr);
+
+        // 1. Native process in stack
+        var s_proc = new ServiceDefinition ("srv_native", "Native Frontend", tmp_dir, "sleep 15", "", "MixedStack", ServiceType.PROCESS);
+
+        // 2. Compose service in same stack
+        var s_comp = new ServiceDefinition ("srv_compose", "Compose Backend", tmp_dir, "", "", "MixedStack", ServiceType.COMPOSE, "docker-compose.yml");
+
+        mgr.add_service (s_proc);
+        mgr.add_service (s_comp);
+
+        assert_true (mgr.get_services_by_stack ("MixedStack").size == 2);
+        assert_true (runner.get_stack_status ("MixedStack") == StackStatus.STOPPED);
+
+        // Verify composite status calculation for mixed stacks
+        s_proc.status = ServiceStatus.RUNNING;
+        s_comp.status = ServiceStatus.STOPPED;
+        assert_true (runner.get_stack_status ("MixedStack") == StackStatus.PARTIALLY_RUNNING);
+
+        s_comp.status = ServiceStatus.RUNNING;
+        assert_true (runner.get_stack_status ("MixedStack") == StackStatus.RUNNING);
+
+        s_proc.status = ServiceStatus.STOPPED;
+        s_comp.status = ServiceStatus.STOPPED;
+        assert_true (runner.get_stack_status ("MixedStack") == StackStatus.STOPPED);
 
         TestUtils.remove_test_directory_and_contents (tmp_dir);
     }

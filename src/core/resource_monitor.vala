@@ -79,6 +79,25 @@ namespace Daemonette {
         }
 
         private void update_running_service_metrics (ServiceDefinition service) {
+            if (service.service_type == ServiceType.DOCKER || service.service_type == ServiceType.COMPOSE) {
+                string target = "";
+                if (service.service_type == ServiceType.DOCKER) {
+                    target = service.container_name.strip ();
+                } else if (service.compose_service != null && service.compose_service.strip () != "") {
+                    target = service.compose_service.strip ();
+                }
+
+                if (target != "") {
+                    uint64 mem_bytes = 0;
+                    double cpu_pct = 0.0;
+                    if (DockerRunner.query_container_metrics (target, out mem_bytes, out cpu_pct)) {
+                        service.metrics.memory_rss_bytes = mem_bytes;
+                        service.metrics.cpu_percent = cpu_pct;
+                    }
+                }
+                return;
+            }
+
             int pgid = process_runner.get_pgid (service.id);
             if (pgid <= 0) {
                 return;

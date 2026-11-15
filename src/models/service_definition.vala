@@ -4,6 +4,53 @@
 
 namespace Daemonette {
 
+    public enum ServiceType {
+        PROCESS,
+        DOCKER,
+        COMPOSE;
+
+        public string to_string_id () {
+            switch (this) {
+                case DOCKER:
+                    return "docker";
+                case COMPOSE:
+                    return "compose";
+                case PROCESS:
+                default:
+                    return "process";
+            }
+        }
+
+        public static ServiceType from_string_id (string? str) {
+            if (str == null) return PROCESS;
+            switch (str.down ()) {
+                case "docker":
+                case "container":
+                    return DOCKER;
+                case "compose":
+                case "docker-compose":
+                case "docker_compose":
+                    return COMPOSE;
+                case "process":
+                case "native":
+                default:
+                    return PROCESS;
+            }
+        }
+
+        public string to_display_string () {
+            switch (this) {
+                case DOCKER:
+                    return tr ("Docker Container");
+                case COMPOSE:
+                    return tr ("Docker Compose");
+                case PROCESS:
+                default:
+                    return tr ("Local Process");
+            }
+        }
+    }
+
     public enum ServiceStatus {
         STOPPED,
         STARTING,
@@ -105,20 +152,22 @@ namespace Daemonette {
         public string name { get; set; }
         public string command { get; set; }
         public string url { get; set; default = ""; }
+        public string icon { get; set; default = "⚡"; }
         public bool use_shell { get; set; default = true; }
         public Gee.HashMap<string, string> environment { get; set; }
 
-        public ServiceVariant (string id, string name, string command, string url = "", bool use_shell = true) {
+        public ServiceVariant (string id, string name, string command, string url = "", bool use_shell = true, string icon = "⚡") {
             this.id = id;
             this.name = name;
             this.command = command;
             this.url = url;
             this.use_shell = use_shell;
+            this.icon = (icon != null && icon.strip () != "") ? icon.strip () : "⚡";
             this.environment = new Gee.HashMap<string, string> ();
         }
 
         public ServiceVariant clone () {
-            var copy = new ServiceVariant (this.id, this.name, this.command, this.url, this.use_shell);
+            var copy = new ServiceVariant (this.id, this.name, this.command, this.url, this.use_shell, this.icon);
             foreach (var entry in this.environment.entries) {
                 copy.environment.set (entry.key, entry.value);
             }
@@ -130,6 +179,10 @@ namespace Daemonette {
         public string id { get; set; }
         public string name { get; set; }
         public string stack { get; set; default = ""; }
+        public ServiceType service_type { get; set; default = ServiceType.PROCESS; }
+        public string compose_file { get; set; default = ""; }
+        public string compose_service { get; set; default = ""; }
+        public string container_name { get; set; default = ""; }
         public string working_directory { get; set; }
         public string command { get; set; }
         public string url { get; set; default = ""; }
@@ -145,10 +198,14 @@ namespace Daemonette {
         public string? active_variant_id { get; set; default = null; }
         public ProcessMetrics metrics { get; set; }
 
-        public ServiceDefinition (string id, string name, string working_directory, string command, string url = "", string stack = "") {
+        public ServiceDefinition (string id, string name, string working_directory, string command, string url = "", string stack = "", ServiceType service_type = ServiceType.PROCESS, string compose_file = "", string compose_service = "", string container_name = "") {
             this.id = id;
             this.name = name;
             this.stack = stack;
+            this.service_type = service_type;
+            this.compose_file = compose_file;
+            this.compose_service = compose_service;
+            this.container_name = container_name;
             this.working_directory = working_directory;
             this.command = command;
             this.url = url;
@@ -176,7 +233,7 @@ namespace Daemonette {
          */
         public ServiceDefinition clone_as_new (string new_name) {
             string new_id = "srv_" + GLib.Uuid.string_random ();
-            var copy = new ServiceDefinition (new_id, new_name, this.working_directory, this.command, this.url, this.stack);
+            var copy = new ServiceDefinition (new_id, new_name, this.working_directory, this.command, this.url, this.stack, this.service_type, this.compose_file, this.compose_service, this.container_name);
             copy.use_shell = this.use_shell;
             copy.load_dotenv = this.load_dotenv;
             copy.auto_restart = this.auto_restart;

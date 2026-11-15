@@ -329,9 +329,22 @@ namespace Daemonette {
                     default: bullet = "⚪"; break;
                 }
 
-                var title_lbl = new Gtk.Label ("%s %s".printf (bullet, s.name)) { xalign = 0 };
+                string type_tag = "";
+                if (s.service_type == ServiceType.COMPOSE) {
+                    type_tag = "🐳 ";
+                } else if (s.service_type == ServiceType.DOCKER) {
+                    type_tag = "📦 ";
+                }
+
+                var title_lbl = new Gtk.Label ("%s %s%s".printf (bullet, type_tag, s.name)) { xalign = 0 };
                 string mem_text = (s.status == ServiceStatus.RUNNING) ? s.metrics.format_memory () : tr ("Stopped");
-                string subtitle = (s.stack != "") ? "%s • %s".printf (mem_text, s.stack) : mem_text;
+                string subtitle = mem_text;
+                if (s.service_type != ServiceType.PROCESS) {
+                    subtitle = "%s • %s".printf (subtitle, s.service_type.to_display_string ());
+                }
+                if (s.stack != "") {
+                    subtitle = "%s • %s".printf (subtitle, s.stack);
+                }
                 var mem_lbl = new Gtk.Label (subtitle) { xalign = 0 };
                 mem_lbl.get_style_context ().add_class ("dim-label");
 
@@ -370,11 +383,14 @@ namespace Daemonette {
                 if (children.length () > 1) {
                     var mem_lbl = (Gtk.Label) children.nth_data (1);
                     string mem_text = (s.status == ServiceStatus.RUNNING) ? s.metrics.format_memory () : tr ("Stopped");
-                    if (s.stack != "") {
-                        mem_lbl.label = "%s • %s".printf (mem_text, s.stack);
-                    } else {
-                        mem_lbl.label = mem_text;
+                    string subtitle = mem_text;
+                    if (s.service_type != ServiceType.PROCESS) {
+                        subtitle = "%s • %s".printf (subtitle, s.service_type.to_display_string ());
                     }
+                    if (s.stack != "") {
+                        subtitle = "%s • %s".printf (subtitle, s.stack);
+                    }
+                    mem_lbl.label = subtitle;
                 }
             }
         }
@@ -401,13 +417,24 @@ namespace Daemonette {
             var s = service_manager.get_service (current_service_id);
             if (s == null) return;
 
+            string type_badge = "";
+            if (s.service_type == ServiceType.COMPOSE) {
+                type_badge = " <span size='small' foreground='#a6e3a1'>[Compose]</span>";
+            } else if (s.service_type == ServiceType.DOCKER) {
+                type_badge = " <span size='small' foreground='#89dceb'>[Docker]</span>";
+            }
+
             if (s.stack != "") {
-                title_label.label = "<b>%s</b> <span size='small' foreground='#89b4fa'>(Stack: %s)</span>".printf (
+                title_label.label = "<b>%s</b>%s <span size='small' foreground='#89b4fa'>(Stack: %s)</span>".printf (
                     GLib.Markup.escape_text (s.name),
+                    type_badge,
                     GLib.Markup.escape_text (s.stack)
                 );
             } else {
-                title_label.label = "<b>%s</b>".printf (GLib.Markup.escape_text (s.name));
+                title_label.label = "<b>%s</b>%s".printf (
+                    GLib.Markup.escape_text (s.name),
+                    type_badge
+                );
             }
 
             // Update status badge

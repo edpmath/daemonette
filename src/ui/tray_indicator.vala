@@ -341,7 +341,14 @@ namespace Daemonette {
             string extra_info;
             resolve_status_indicator (service, out status_bullet, out extra_info);
 
-            string label = "%s %s %s".printf (status_bullet, service.name, extra_info);
+            string type_icon = "";
+            if (service.service_type == ServiceType.COMPOSE) {
+                type_icon = "🐳 ";
+            } else if (service.service_type == ServiceType.DOCKER) {
+                type_icon = "📦 ";
+            }
+
+            string label = "%s %s%s %s".printf (status_bullet, type_icon, service.name, extra_info);
             var main_item = new Gtk.MenuItem.with_label (label);
             var submenu = new Gtk.Menu ();
 
@@ -414,14 +421,23 @@ namespace Daemonette {
         }
 
         private void build_stopped_service_submenu (Gtk.Menu submenu, ServiceDefinition service) {
-            var start_item = new Gtk.MenuItem.with_label (tr ("▶ Start Default (%s)").printf (service.command));
+            string start_label;
+            if (service.service_type == ServiceType.COMPOSE) {
+                start_label = tr ("▶ Start Compose (up -d)");
+            } else if (service.service_type == ServiceType.DOCKER) {
+                start_label = tr ("▶ Start Container");
+            } else {
+                start_label = tr ("▶ Start Default (%s)").printf (service.command);
+            }
+            var start_item = new Gtk.MenuItem.with_label (start_label);
             start_item.activate.connect (() => {
                 process_runner.start_service (service, null);
             });
             submenu.append (start_item);
 
             foreach (var v in service.variants) {
-                string v_label = tr ("⚡ Variant: %s").printf (v.name);
+                string v_icon = (v.icon != null && v.icon.strip () != "") ? v.icon.strip () : "⚡";
+                string v_label = "%s %s: %s".printf (v_icon, tr ("Variant"), v.name);
                 var var_item = new Gtk.MenuItem.with_label (v_label);
                 string v_id = v.id;
                 var_item.activate.connect (() => {
