@@ -114,6 +114,7 @@ Thumbs.db
 # Agents
 .agents
 .opencode
+AGENTS.md
 
 # --- Project-specific Exclusions ---
 # Local raw logos / design assets directory
