@@ -42,7 +42,11 @@ namespace Daemonette {
             });
 
             tray_indicator.request_open_logs.connect ((service_id) => {
-                show_log_viewer (service_id);
+                show_log_viewer (service_id, null);
+            });
+
+            tray_indicator.request_open_container_logs.connect ((service_id, container_name) => {
+                show_log_viewer (service_id, container_name);
             });
 
             tray_indicator.request_quit.connect (() => {
@@ -68,24 +72,24 @@ namespace Daemonette {
             }
         }
 
-        private void show_log_viewer (string? service_id) {
+        private void show_log_viewer (string? service_id, string? container_name = null) {
             if (log_window != null) {
-                present_existing_log_viewer (service_id);
+                present_existing_log_viewer (service_id, container_name);
                 return;
             }
 
-            create_and_show_log_viewer (service_id);
+            create_and_show_log_viewer (service_id, container_name);
         }
 
-        private void present_existing_log_viewer (string? service_id) {
+        private void present_existing_log_viewer (string? service_id, string? container_name = null) {
             if (service_id != null) {
-                log_window.select_service (service_id);
+                log_window.select_service (service_id, container_name);
             }
             log_window.present ();
         }
 
-        private void create_and_show_log_viewer (string? service_id) {
-            log_window = new LogViewerWindow (service_manager, process_runner, resource_monitor, service_id);
+        private void create_and_show_log_viewer (string? service_id, string? container_name = null) {
+            log_window = new LogViewerWindow (service_manager, process_runner, resource_monitor, service_id, container_name);
             add_window (log_window);
             log_window.window_closed.connect (() => {
                 log_window = null;

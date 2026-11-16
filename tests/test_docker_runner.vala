@@ -10,6 +10,11 @@ namespace Daemonette.Tests {
         GLib.Test.add_func ("/core/docker_runner/build_compose_argv", test_build_compose_argv);
         GLib.Test.add_func ("/core/docker_runner/build_docker_argv", test_build_docker_argv);
         GLib.Test.add_func ("/core/docker_runner/build_docker_start_argv", test_build_docker_start_argv);
+        GLib.Test.add_func ("/core/docker_runner/parse_byte_size_and_cpu", test_parse_byte_size_and_cpu);
+        GLib.Test.add_func ("/core/docker_runner/parse_compose_ps_json", test_parse_compose_ps_json);
+        GLib.Test.add_func ("/core/docker_runner/apply_stats_json", test_apply_stats_json);
+        GLib.Test.add_func ("/core/docker_runner/line_matches_container_filter", test_line_matches_container_filter);
+        GLib.Test.add_func ("/core/docker_runner/live_compose_query", test_live_compose_query);
     }
 
     private void test_docker_availability () {
@@ -114,5 +119,123 @@ namespace Daemonette.Tests {
         assert_true (argv_run[3] == "-p");
         assert_true (argv_run[4] == "8080:80");
         assert_true (argv_run[5] == "nginx:alpine");
+    }
+
+    private void test_parse_byte_size_and_cpu () {
+        // Bytes and units
+        assert_true (DockerRunner.parse_byte_size ("0B") == 0ULL);
+        assert_true (DockerRunner.parse_byte_size ("512B") == 512ULL);
+        assert_true (DockerRunner.parse_byte_size ("10KiB") == 10240ULL);
+        assert_true (DockerRunner.parse_byte_size ("2MB") == 2ULL * 1024ULL * 1024ULL);
+        assert_true (DockerRunner.parse_byte_size ("14.52MiB") > 14ULL * 1024ULL * 1024ULL);
+        assert_true (DockerRunner.parse_byte_size ("1.5GiB") == (uint64)(1.5 * 1024.0 * 1024.0 * 1024.0));
+
+        // Memory usage string: "37.62MiB / 7.569GiB"
+        uint64 mem = DockerRunner.parse_mem_usage_string ("20.5MiB / 31.2GiB");
+        assert_true (mem > 20ULL * 1024ULL * 1024ULL);
+
+        // CPU percentage: "0.14%" -> 0.14
+        double cpu = DockerRunner.parse_cpu_percentage ("0.14%");
+        assert_true (cpu >= 0.13 && cpu <= 0.15);
+
+        double cpu_zero = DockerRunner.parse_cpu_percentage ("0.00%");
+        assert_true (cpu_zero == 0.0);
+    }
+
+    private void test_parse_compose_ps_json () {
+        string sample_json = """
+        {"ID":"79ece75e47cb","Name":"calendar-engine","Service":"calendar-engine","Image":"digicloud-calendar","State":"running","Status":"Up 8 minutes","Health":"healthy","Ports":"0.0.0.0:7004->7004/tcp"}
+        {"ID":"ca3d378f4a70","Name":"postgres-db","Service":"postgres","Image":"postgres:18","State":"running","Status":"Up 8 minutes","Health":"healthy","Ports":"0.0.0.0:5432->5432/tcp"}
+        """;
+
+        var list = DockerRunner.parse_compose_ps_json (sample_json);
+        assert_true (list.size == 2);
+
+        var c1 = list.get (0);
+        assert_true (c1.id == "79ece75e47cb");
+        assert_true (c1.name == "calendar-engine");
+        assert_true (c1.service_name == "calendar-engine");
+        assert_true (c1.state == "running");
+        assert_true (c1.health == "healthy");
+        assert_true (c1.ports.contains ("7004"));
+
+        var c2 = list.get (1);
+        assert_true (c2.id == "ca3d378f4a70");
+        assert_true (c2.name == "postgres-db");
+        assert_true (c2.service_name == "postgres");
+        assert_true (c2.state == "running");
+    }
+
+    private void test_apply_stats_json () {
+        var containers = new Gee.ArrayList<DockerContainerInfo> ();
+        var c1 = new DockerContainerInfo ("79ece75e47cb", "calendar-engine", "calendar-engine", "digicloud-calendar", "running", "Up");
+        var c2 = new DockerContainerInfo ("ca3d378f4a70", "postgres-db", "postgres", "postgres:18", "running", "Up");
+        containers.add (c1);
+        containers.add (c2);
+
+        string sample_stats = """
+        {"CPUPerc":"0.05%","Container":"79ece75e47cb6686e","ID":"79ece75e47cb","MemUsage":"22.5MiB / 31.27GiB","Name":"calendar-engine"}
+        {"CPUPerc":"1.20%","Container":"ca3d378f4a708df03","ID":"ca3d378f4a70","MemUsage":"104.4MiB / 31.27GiB","Name":"postgres-db"}
+        """;
+
+        DockerRunner.apply_stats_json_to_containers (sample_stats, containers);
+
+        assert_true (c1.memory_bytes > 22ULL * 1024ULL * 1024ULL);
+        assert_true (c1.cpu_percent >= 0.04 && c1.cpu_percent <= 0.06);
+
+        assert_true (c2.memory_bytes > 100ULL * 1024ULL * 1024ULL);
+        assert_true (c2.cpu_percent >= 1.19 && c2.cpu_percent <= 1.21);
+    }
+
+    private void test_line_matches_container_filter () {
+        // Universal match
+        assert_true (LogViewerWindow.line_matches_container_filter ("postgres-db | ready", ""));
+        assert_true (LogViewerWindow.line_matches_container_filter ("postgres-db | ready", "__all__"));
+
+        // Matching container prefix
+        assert_true (LogViewerWindow.line_matches_container_filter ("postgres-db | ready", "postgres-db"));
+        assert_true (LogViewerWindow.line_matches_container_filter ("postgres-db-1 | ready", "postgres-db"));
+
+        // Non-matching container prefix
+        assert_true (!LogViewerWindow.line_matches_container_filter ("postgres-db | ready", "valkey-cache"));
+        assert_true (!LogViewerWindow.line_matches_container_filter ("valkey-cache-1 | 1:M ready", "traefik"));
+
+        // System headers mentioning target
+        assert_true (LogViewerWindow.line_matches_container_filter ("--- [Restarting container: valkey-cache] ---", "valkey-cache"));
+
+        // ANSI colored prefix from docker compose
+        assert_true (LogViewerWindow.line_matches_container_filter ("\x1b[36mpostgres-db-1\x1b[0m | ready to accept connections", "postgres-db"));
+        assert_true (!LogViewerWindow.line_matches_container_filter ("\x1b[36mpostgres-db-1\x1b[0m | ready to accept connections", "valkey-cache"));
+    }
+
+    private void test_live_compose_query () {
+        if (!DockerRunner.is_docker_available ()) return;
+
+        string digicloud_compose = "/home/shared/Projects/digicloud/docker-compose.yml";
+        if (!GLib.FileUtils.test (digicloud_compose, GLib.FileTest.EXISTS)) return;
+
+        var s = new ServiceDefinition ("dc_test", "DC Backend", "/home/shared/Projects/digicloud", "", "", "DigiCloud", ServiceType.COMPOSE, digicloud_compose);
+        var main_loop = new GLib.MainLoop ();
+        bool queried = false;
+
+        DockerRunner.query_compose_containers_async.begin (s, (obj, res) => {
+            var containers = DockerRunner.query_compose_containers_async.end (res);
+            assert_true (containers.size >= 1);
+
+            DockerRunner.update_compose_metrics_async.begin (s, (obj2, res2) => {
+                DockerRunner.update_compose_metrics_async.end (res2);
+                assert_true (s.docker_containers.size >= 1);
+                assert_true (s.metrics.memory_rss_bytes > 0);
+                queried = true;
+                main_loop.quit ();
+            });
+        });
+
+        GLib.Timeout.add_seconds (3, () => {
+            main_loop.quit ();
+            return GLib.Source.REMOVE;
+        });
+        main_loop.run ();
+        assert_true (queried);
     }
 }

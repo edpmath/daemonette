@@ -175,6 +175,49 @@ namespace Daemonette {
         }
     }
 
+    public class DockerContainerInfo : Object {
+        public string id { get; set; default = ""; }
+        public string name { get; set; default = ""; }
+        public string service_name { get; set; default = ""; }
+        public string image { get; set; default = ""; }
+        public string state { get; set; default = ""; }
+        public string status_text { get; set; default = ""; }
+        public string health { get; set; default = ""; }
+        public string ports { get; set; default = ""; }
+        public uint64 memory_bytes { get; set; default = 0; }
+        public double cpu_percent { get; set; default = 0.0; }
+
+        public DockerContainerInfo (string id, string name, string service_name, string image, string state, string status_text, string health = "", string ports = "") {
+            this.id = id;
+            this.name = name;
+            this.service_name = service_name;
+            this.image = image;
+            this.state = state;
+            this.status_text = status_text;
+            this.health = health;
+            this.ports = ports;
+            this.memory_bytes = 0;
+            this.cpu_percent = 0.0;
+        }
+
+        public string format_memory () {
+            if (memory_bytes < 1024 * 1024) {
+                return "%llu KB".printf (memory_bytes / 1024);
+            }
+            if (memory_bytes < 1024ULL * 1024ULL * 1024ULL) {
+                return "%.1f MB".printf ((double) memory_bytes / (1024.0 * 1024.0));
+            }
+            return "%.2f GB".printf ((double) memory_bytes / (1024.0 * 1024.0 * 1024.0));
+        }
+
+        public DockerContainerInfo clone () {
+            var c = new DockerContainerInfo (this.id, this.name, this.service_name, this.image, this.state, this.status_text, this.health, this.ports);
+            c.memory_bytes = this.memory_bytes;
+            c.cpu_percent = this.cpu_percent;
+            return c;
+        }
+    }
+
     public class ServiceDefinition : Object {
         public string id { get; set; }
         public string name { get; set; }
@@ -197,6 +240,7 @@ namespace Daemonette {
         public ServiceStatus status { get; set; default = ServiceStatus.STOPPED; }
         public string? active_variant_id { get; set; default = null; }
         public ProcessMetrics metrics { get; set; }
+        public Gee.ArrayList<DockerContainerInfo> docker_containers { get; set; }
 
         public ServiceDefinition (string id, string name, string working_directory, string command, string url = "", string stack = "", ServiceType service_type = ServiceType.PROCESS, string compose_file = "", string compose_service = "", string container_name = "") {
             this.id = id;
@@ -216,6 +260,7 @@ namespace Daemonette {
             this.environment = new Gee.HashMap<string, string> ();
             this.variants = new Gee.ArrayList<ServiceVariant> ();
             this.metrics = new ProcessMetrics ();
+            this.docker_containers = new Gee.ArrayList<DockerContainerInfo> ();
         }
 
         public ServiceVariant? find_variant (string variant_id) {

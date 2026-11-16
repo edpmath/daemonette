@@ -9,6 +9,7 @@ namespace Daemonette.Tests {
         GLib.Test.add_func ("/models/service_definition/stack_property", test_service_definition_stack_property);
         GLib.Test.add_func ("/models/service_definition/docker_properties", test_service_definition_docker_properties);
         GLib.Test.add_func ("/models/service_variant/editing_and_icons", test_service_variant_editing_and_icons);
+        GLib.Test.add_func ("/models/docker_container_info/properties_and_formatting", test_docker_container_info);
         GLib.Test.add_func ("/models/service_definition/find_variant", test_find_variant);
         GLib.Test.add_func ("/models/service_definition/clone_as_new", test_clone_as_new);
         GLib.Test.add_func ("/models/service_type/enum_conversion", test_service_type_enum);
@@ -107,6 +108,34 @@ namespace Daemonette.Tests {
         assert_true (clone.icon == "🧪");
         assert_true (clone.url == "http://localhost:8080/coverage");
         assert_true (clone.use_shell == false);
+    }
+
+    private void test_docker_container_info () {
+        var info = new DockerContainerInfo ("cnt_123", "postgres-db", "postgres", "postgres:16", "running", "Up 10 minutes", "healthy", "0.0.0.0:5432->5432/tcp");
+        assert_true (info.id == "cnt_123");
+        assert_true (info.name == "postgres-db");
+        assert_true (info.service_name == "postgres");
+        assert_true (info.image == "postgres:16");
+        assert_true (info.state == "running");
+        assert_true (info.status_text == "Up 10 minutes");
+        assert_true (info.health == "healthy");
+        assert_true (info.ports == "0.0.0.0:5432->5432/tcp");
+        assert_true (info.format_memory () == "0 KB");
+
+        info.memory_bytes = 104857600ULL; // 100 MB
+        info.cpu_percent = 1.5;
+        string mem_mb = info.format_memory ();
+        assert_true (mem_mb.contains ("100") && mem_mb.has_suffix ("MB"));
+
+        info.memory_bytes = 2147483648ULL; // 2 GB
+        string mem_gb = info.format_memory ();
+        assert_true (mem_gb.contains ("2") && mem_gb.has_suffix ("GB"));
+
+        var copy = info.clone ();
+        assert_true (copy.id == info.id);
+        assert_true (copy.name == info.name);
+        assert_true (copy.memory_bytes == info.memory_bytes);
+        assert_true (copy.cpu_percent == info.cpu_percent);
     }
 
     private void test_find_variant () {

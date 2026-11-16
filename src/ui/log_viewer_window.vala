@@ -30,6 +30,19 @@ namespace Daemonette {
         private Gtk.Button clear_btn;
         private Gtk.Button copy_btn;
 
+        // Views & Docker / Compose inspector
+        private Gtk.Box view_toolbar;
+        private Gtk.Stack main_stack;
+        private Gtk.StackSwitcher main_stack_switcher;
+        private Gtk.Box container_filter_box;
+        private Gtk.Label container_filter_label;
+        private Gtk.ComboBoxText container_filter_combo;
+        private Gtk.ScrolledWindow containers_scrolled;
+        private Gtk.ListBox containers_listbox;
+
+        private string? active_container_filter = null;
+        private bool updating_filter_combo = false;
+
         private ulong log_output_handler_id = 0;
         private ulong metrics_handler_id = 0;
         private ulong status_handler_id = 0;
@@ -37,7 +50,7 @@ namespace Daemonette {
 
         public signal void window_closed ();
 
-        public LogViewerWindow (ServiceManager service_manager, ProcessRunner process_runner, ResourceMonitor resource_monitor, string? initial_service_id = null) {
+        public LogViewerWindow (ServiceManager service_manager, ProcessRunner process_runner, ResourceMonitor resource_monitor, string? initial_service_id = null, string? initial_container_filter = null) {
             Object (
                 title: tr ("Daemonette - Log Viewer & Resource Monitor"),
                 default_width: 880,
@@ -49,6 +62,7 @@ namespace Daemonette {
             this.process_runner = process_runner;
             this.resource_monitor = resource_monitor;
             this.current_service_id = initial_service_id;
+            this.active_container_filter = (initial_container_filter != null && initial_container_filter != "" && initial_container_filter != "__all__") ? initial_container_filter : null;
 
             // Notify resource monitor to switch to high-frequency polling
             resource_monitor.set_high_frequency_mode (true);
@@ -63,7 +77,7 @@ namespace Daemonette {
             }
 
             refresh_sidebar ();
-            select_service (current_service_id);
+            select_service (current_service_id, active_container_filter);
 
             delete_event.connect (on_delete_event);
         }
@@ -107,7 +121,7 @@ namespace Daemonette {
                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
                 );
             } catch (GLib.Error e) {
-                GLib.warning ("Error al cargar estilos CSS: %s", e.message);
+                GLib.warning ("Failed to load CSS styles: %s", e.message);
             }
         }
 
@@ -185,7 +199,41 @@ namespace Daemonette {
             main_box.pack_start (header_box, false, false, 0);
             main_box.pack_start (new Gtk.Separator (Gtk.Orientation.HORIZONTAL), false, false, 0);
 
-            // 2.2 Log text display area
+            // 2.2 View switcher & container filter toolbar
+            view_toolbar = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
+            view_toolbar.margin_start = 8;
+            view_toolbar.margin_end = 8;
+            view_toolbar.margin_top = 4;
+            view_toolbar.margin_bottom = 4;
+
+            main_stack = new Gtk.Stack ();
+            main_stack.transition_type = Gtk.StackTransitionType.CROSSFADE;
+            main_stack.vexpand = true;
+            main_stack.hexpand = true;
+
+            main_stack_switcher = new Gtk.StackSwitcher ();
+            main_stack_switcher.stack = main_stack;
+            view_toolbar.pack_start (main_stack_switcher, false, false, 0);
+
+            container_filter_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6);
+            container_filter_label = new Gtk.Label (tr ("Filter:")) { xalign = 1 };
+            container_filter_label.get_style_context ().add_class ("dim-label");
+            container_filter_combo = new Gtk.ComboBoxText ();
+            container_filter_combo.append ("__all__", tr ("🐳 All Containers"));
+            container_filter_combo.active_id = "__all__";
+            container_filter_combo.changed.connect (on_container_filter_changed);
+
+            container_filter_box.pack_start (container_filter_label, false, false, 0);
+            container_filter_box.pack_start (container_filter_combo, false, false, 0);
+            view_toolbar.pack_end (container_filter_box, false, false, 0);
+            view_toolbar.show_all ();
+
+            main_box.pack_start (view_toolbar, false, false, 0);
+            main_box.pack_start (new Gtk.Separator (Gtk.Orientation.HORIZONTAL), false, false, 0);
+
+            // 2.3 Page 1: Logs
+            var logs_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+
             scrolled_logs = new Gtk.ScrolledWindow (null, null);
             scrolled_logs.vexpand = true;
             scrolled_logs.hexpand = true;
@@ -204,9 +252,9 @@ namespace Daemonette {
             log_textview.get_style_context ().add_class ("log-view");
 
             scrolled_logs.add (log_textview);
-            main_box.pack_start (scrolled_logs, true, true, 0);
+            logs_box.pack_start (scrolled_logs, true, true, 0);
 
-            // 2.3 Minimal bottom status/action bar
+            // Bottom bar in logs
             var bottom_bar = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
             bottom_bar.border_width = 6;
 
@@ -235,7 +283,24 @@ namespace Daemonette {
             });
             bottom_bar.pack_end (autoscroll_toggle, false, false, 0);
 
-            main_box.pack_start (bottom_bar, false, false, 0);
+            logs_box.pack_start (bottom_bar, false, false, 0);
+            main_stack.add_titled (logs_box, "logs", tr ("📄 Logs"));
+
+            // 2.4 Page 2: Containers
+            containers_scrolled = new Gtk.ScrolledWindow (null, null);
+            containers_scrolled.vexpand = true;
+            containers_scrolled.hexpand = true;
+
+            containers_listbox = new Gtk.ListBox ();
+            containers_listbox.set_selection_mode (Gtk.SelectionMode.NONE);
+            containers_scrolled.add (containers_listbox);
+            main_stack.add_titled (containers_scrolled, "containers", tr ("🐳 Containers"));
+
+            main_stack.notify["visible-child-name"].connect (() => {
+                update_toolbar_visibility ();
+            });
+
+            main_box.pack_start (main_stack, true, true, 0);
 
             main_paned.pack2 (main_box, true, false);
             add (main_paned);
@@ -244,11 +309,15 @@ namespace Daemonette {
         private void connect_signals () {
             // Incoming real-time log lines
             log_output_handler_id = process_runner.output_received.connect ((s_id, line, is_stderr) => {
-                if (s_id == current_service_id) {
-                    AnsiParser.insert_formatted (log_textbuffer, line);
-                    if (autoscroll_enabled) {
-                        scroll_to_bottom ();
-                    }
+                if (s_id != current_service_id) {
+                    return;
+                }
+                if (active_container_filter != null && !line_matches_container_filter (line, active_container_filter)) {
+                    return;
+                }
+                AnsiParser.insert_formatted (log_textbuffer, line);
+                if (autoscroll_enabled) {
+                    scroll_to_bottom ();
                 }
             });
 
@@ -262,9 +331,13 @@ namespace Daemonette {
 
             // CPU / RAM metrics updates
             metrics_handler_id = resource_monitor.metrics_updated.connect (() => {
-                if (current_service_id != null) {
-                    update_header_for_current_service ();
-                    refresh_sidebar_metrics ();
+                if (current_service_id == null) {
+                    return;
+                }
+                update_header_for_current_service ();
+                refresh_sidebar_metrics ();
+                if (main_stack.visible_child_name == "containers") {
+                    refresh_containers_view ();
                 }
             });
 
@@ -285,82 +358,61 @@ namespace Daemonette {
             restart_btn.tooltip_text = tr ("Restart service");
             browser_btn.tooltip_text = tr ("Open in browser");
             terminal_btn.tooltip_text = tr ("Open terminal in folder");
+            container_filter_label.label = tr ("Filter:");
             refresh_sidebar ();
             update_header_for_current_service ();
         }
 
-        public void select_service (string? service_id) {
+        public void select_service (string? service_id, string? container_name = null) {
             this.current_service_id = service_id;
+            this.active_container_filter = (container_name != null && container_name != "" && container_name != "__all__") ? container_name : null;
             update_header_for_current_service ();
             reload_logs_for_current_service ();
+            sync_sidebar_selection ();
+        }
+
+        private void sync_sidebar_selection () {
+            foreach (var child in sidebar_listbox.get_children ()) {
+                var row = (Gtk.ListBoxRow) child;
+                string? s_id = row.get_data ("service_id");
+                string? c_name = row.get_data ("container_name");
+                if (s_id == current_service_id && c_name == active_container_filter) {
+                    sidebar_listbox.select_row (row);
+                    break;
+                }
+            }
         }
 
         private void refresh_sidebar () {
-            // Clear current list items
             foreach (var child in sidebar_listbox.get_children ()) {
                 sidebar_listbox.remove (child);
             }
 
-            var ordered_services = new Gee.ArrayList<ServiceDefinition> ();
-            var stacks = service_manager.get_stacks ();
-            foreach (var st in stacks) {
-                foreach (var s in service_manager.get_services_by_stack (st)) {
-                    ordered_services.add (s);
-                }
-            }
-            foreach (var s in service_manager.get_ungrouped_services ()) {
-                ordered_services.add (s);
-            }
-
+            var ordered_services = get_ordered_services ();
             int index_to_select = 0;
             int i = 0;
 
             foreach (var s in ordered_services) {
-                var row = new Gtk.ListBoxRow ();
-                var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 2) { margin = 6 };
-
-                string bullet;
-                switch (s.status) {
-                    case ServiceStatus.RUNNING: bullet = "🟢"; break;
-                    case ServiceStatus.STARTING: bullet = "🟡"; break;
-                    case ServiceStatus.STOPPING: bullet = "🟠"; break;
-                    case ServiceStatus.FAILED: bullet = "🔴"; break;
-                    case ServiceStatus.STOPPED:
-                    default: bullet = "⚪"; break;
-                }
-
-                string type_tag = "";
-                if (s.service_type == ServiceType.COMPOSE) {
-                    type_tag = "🐳 ";
-                } else if (s.service_type == ServiceType.DOCKER) {
-                    type_tag = "📦 ";
-                }
-
-                var title_lbl = new Gtk.Label ("%s %s%s".printf (bullet, type_tag, s.name)) { xalign = 0 };
-                string mem_text = (s.status == ServiceStatus.RUNNING) ? s.metrics.format_memory () : tr ("Stopped");
-                string subtitle = mem_text;
-                if (s.service_type != ServiceType.PROCESS) {
-                    subtitle = "%s • %s".printf (subtitle, s.service_type.to_display_string ());
-                }
-                if (s.stack != "") {
-                    subtitle = "%s • %s".printf (subtitle, s.stack);
-                }
-                var mem_lbl = new Gtk.Label (subtitle) { xalign = 0 };
-                mem_lbl.get_style_context ().add_class ("dim-label");
-
-                box.pack_start (title_lbl, false, false, 0);
-                box.pack_start (mem_lbl, false, false, 0);
-                row.add (box);
-
-                // Store service_id in the row widget
-                row.set_data ("service_id", s.id);
-
-                if (s.id == current_service_id) {
+                var row = create_sidebar_service_row (s);
+                if (s.id == current_service_id && active_container_filter == null) {
                     index_to_select = i;
                 }
-
                 sidebar_listbox.add (row);
                 i++;
+
+                bool has_containers = (s.service_type == ServiceType.COMPOSE || s.service_type == ServiceType.DOCKER) && s.docker_containers.size > 0;
+                if (!has_containers) {
+                    continue;
+                }
+
+                foreach (var c in s.docker_containers) {
+                    var sub_row = create_sidebar_container_row (s, c);
+                    if (s.id == current_service_id && active_container_filter == c.name) {
+                        index_to_select = i;
+                    }
+                    sidebar_listbox.add (sub_row);
+                    i++;
+                }
             }
 
             sidebar_listbox.show_all ();
@@ -371,57 +423,264 @@ namespace Daemonette {
             }
         }
 
-        private void refresh_sidebar_metrics () {
-            foreach (var child in sidebar_listbox.get_children ()) {
-                var row = (Gtk.ListBoxRow) child;
-                string? s_id = row.get_data ("service_id");
-                if (s_id == null) continue;
-                var s = service_manager.get_service (s_id);
-                if (s == null) continue;
-                var box = (Gtk.Box) row.get_child ();
-                var children = box.get_children ();
-                if (children.length () > 1) {
-                    var mem_lbl = (Gtk.Label) children.nth_data (1);
-                    string mem_text = (s.status == ServiceStatus.RUNNING) ? s.metrics.format_memory () : tr ("Stopped");
-                    string subtitle = mem_text;
-                    if (s.service_type != ServiceType.PROCESS) {
-                        subtitle = "%s • %s".printf (subtitle, s.service_type.to_display_string ());
-                    }
-                    if (s.stack != "") {
-                        subtitle = "%s • %s".printf (subtitle, s.stack);
-                    }
-                    mem_lbl.label = subtitle;
+        private Gee.ArrayList<ServiceDefinition> get_ordered_services () {
+            var ordered = new Gee.ArrayList<ServiceDefinition> ();
+            var stacks = service_manager.get_stacks ();
+            foreach (var st in stacks) {
+                foreach (var s in service_manager.get_services_by_stack (st)) {
+                    ordered.add (s);
                 }
+            }
+            foreach (var s in service_manager.get_ungrouped_services ()) {
+                ordered.add (s);
+            }
+            return ordered;
+        }
+
+        private Gtk.ListBoxRow create_sidebar_service_row (ServiceDefinition s) {
+            var row = new Gtk.ListBoxRow ();
+            var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 2) { margin = 6 };
+
+            string bullet;
+            switch (s.status) {
+                case ServiceStatus.RUNNING: bullet = "🟢"; break;
+                case ServiceStatus.STARTING: bullet = "🟡"; break;
+                case ServiceStatus.STOPPING: bullet = "🟠"; break;
+                case ServiceStatus.FAILED: bullet = "🔴"; break;
+                case ServiceStatus.STOPPED:
+                default: bullet = "⚪"; break;
+            }
+
+            string type_tag = "";
+            if (s.service_type == ServiceType.COMPOSE) {
+                type_tag = "🐳 ";
+            } else if (s.service_type == ServiceType.DOCKER) {
+                type_tag = "📦 ";
+            }
+
+            var title_lbl = new Gtk.Label ("%s %s%s".printf (bullet, type_tag, GLib.Markup.escape_text (s.name))) { use_markup = true, xalign = 0 };
+            string mem_text = (s.status == ServiceStatus.RUNNING) ? s.metrics.format_memory () : tr ("Stopped");
+            string subtitle = mem_text;
+            if (s.service_type != ServiceType.PROCESS) {
+                subtitle = "%s • %s".printf (subtitle, s.service_type.to_display_string ());
+            }
+            if (s.stack != "") {
+                subtitle = "%s • %s".printf (subtitle, s.stack);
+            }
+            var mem_lbl = new Gtk.Label (subtitle) { xalign = 0 };
+            mem_lbl.get_style_context ().add_class ("dim-label");
+
+            box.pack_start (title_lbl, false, false, 0);
+            box.pack_start (mem_lbl, false, false, 0);
+            row.add (box);
+
+            row.set_data ("service_id", s.id);
+            row.set_data ("container_name", null);
+            return row;
+        }
+
+        private Gtk.ListBoxRow create_sidebar_container_row (ServiceDefinition s, DockerContainerInfo c) {
+            var sub_row = new Gtk.ListBoxRow ();
+            var sub_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 2);
+            sub_box.margin_top = 3;
+            sub_box.margin_bottom = 3;
+            sub_box.margin_end = 6;
+            sub_box.margin_start = 22;
+
+            string c_bullet = get_container_status_bullet (c);
+            var c_title = new Gtk.Label ("%s <span foreground='#cdd6f4'>%s</span>".printf (c_bullet, GLib.Markup.escape_text (c.name))) { use_markup = true, xalign = 0 };
+            string c_sub = c.format_memory ();
+            if (c.cpu_percent > 0.0) {
+                c_sub += " • %.1f%% CPU".printf (c.cpu_percent);
+            }
+            var c_mem = new Gtk.Label ("<span size='small' foreground='#a6adc8'>%s</span>".printf (c_sub)) { use_markup = true, xalign = 0 };
+
+            sub_box.pack_start (c_title, false, false, 0);
+            sub_box.pack_start (c_mem, false, false, 0);
+            sub_row.add (sub_box);
+
+            sub_row.set_data ("service_id", s.id);
+            sub_row.set_data ("container_name", c.name);
+            return sub_row;
+        }
+
+        private string get_container_status_bullet (DockerContainerInfo c) {
+            if (c.state == "starting") {
+                return "🟡";
+            }
+            if (c.state != "running") {
+                return "⚪";
+            }
+            if (c.health == "unhealthy") {
+                return "🔴";
+            }
+            return "🟢";
+        }
+
+        private int last_sidebar_container_count = -1;
+
+        private void refresh_sidebar_metrics () {
+            int total_containers = count_all_containers ();
+            if (last_sidebar_container_count != -1 && total_containers != last_sidebar_container_count) {
+                last_sidebar_container_count = total_containers;
+                refresh_sidebar ();
+                return;
+            }
+            last_sidebar_container_count = total_containers;
+
+            foreach (var child in sidebar_listbox.get_children ()) {
+                update_single_sidebar_row_metric ((Gtk.ListBoxRow) child);
             }
         }
 
-        private void on_sidebar_row_selected (Gtk.ListBoxRow? row) {
-            if (row == null) return;
-            string? s_id = row.get_data ("service_id");
-            if (s_id != null && s_id != current_service_id) {
-                select_service (s_id);
+        private int count_all_containers () {
+            int count = 0;
+            foreach (var s in service_manager.services) {
+                count += s.docker_containers.size;
             }
+            return count;
+        }
+
+        private void update_single_sidebar_row_metric (Gtk.ListBoxRow row) {
+            string? s_id = row.get_data ("service_id");
+            if (s_id == null) {
+                return;
+            }
+            var s = service_manager.get_service (s_id);
+            if (s == null) {
+                return;
+            }
+
+            var box = (Gtk.Box) row.get_child ();
+            var children = box.get_children ();
+            if (children.length () <= 1) {
+                return;
+            }
+
+            var mem_lbl = (Gtk.Label) children.nth_data (1);
+            string? c_name = row.get_data ("container_name");
+
+            if (c_name != null) {
+                update_container_row_metric (mem_lbl, s, c_name);
+                return;
+            }
+
+            update_service_row_metric (mem_lbl, s);
+        }
+
+        private void update_container_row_metric (Gtk.Label mem_lbl, ServiceDefinition s, string c_name) {
+            DockerContainerInfo? matched_c = null;
+            foreach (var c in s.docker_containers) {
+                if (c.name == c_name) {
+                    matched_c = c;
+                    break;
+                }
+            }
+            if (matched_c == null) {
+                return;
+            }
+            string c_sub = matched_c.format_memory ();
+            if (matched_c.cpu_percent > 0.0) {
+                c_sub += " • %.1f%% CPU".printf (matched_c.cpu_percent);
+            }
+            mem_lbl.label = "<span size='small' foreground='#a6adc8'>%s</span>".printf (c_sub);
+        }
+
+        private void update_service_row_metric (Gtk.Label mem_lbl, ServiceDefinition s) {
+            string mem_text = (s.status == ServiceStatus.RUNNING) ? s.metrics.format_memory () : tr ("Stopped");
+            string subtitle = mem_text;
+            if (s.service_type != ServiceType.PROCESS) {
+                subtitle = "%s • %s".printf (subtitle, s.service_type.to_display_string ());
+            }
+            if (s.stack != "") {
+                subtitle = "%s • %s".printf (subtitle, s.stack);
+            }
+            mem_lbl.label = subtitle;
+        }
+
+        private void on_sidebar_row_selected (Gtk.ListBoxRow? row) {
+            if (row == null) {
+                return;
+            }
+            string? s_id = row.get_data ("service_id");
+            if (s_id == null) {
+                return;
+            }
+            string? c_name = row.get_data ("container_name");
+            if (s_id == current_service_id && c_name == active_container_filter) {
+                return;
+            }
+            select_service (s_id, c_name);
         }
 
         private void update_header_for_current_service () {
             if (current_service_id == null) {
-                title_label.label = tr ("No service selected");
-                status_badge.label = tr ("Inactive");
-                start_stop_btn.sensitive = false;
-                restart_btn.sensitive = false;
-                browser_btn.sensitive = false;
-                terminal_btn.sensitive = false;
+                reset_header_to_empty ();
+                update_toolbar_visibility ();
                 return;
             }
 
             var s = service_manager.get_service (current_service_id);
-            if (s == null) return;
+            if (s == null) {
+                update_toolbar_visibility ();
+                return;
+            }
 
-            string type_badge = "";
-            if (s.service_type == ServiceType.COMPOSE) {
-                type_badge = " <span size='small' foreground='#a6e3a1'>[Compose]</span>";
-            } else if (s.service_type == ServiceType.DOCKER) {
-                type_badge = " <span size='small' foreground='#89dceb'>[Docker]</span>";
+            update_header_title_and_metrics (s);
+            update_header_status_badge (s);
+
+            browser_btn.sensitive = (s.url.strip () != "");
+            terminal_btn.sensitive = (s.working_directory.strip () != "");
+
+            update_container_tab_title (s);
+            populate_container_filter_combo (s);
+            update_toolbar_visibility ();
+            refresh_containers_view ();
+        }
+
+        private void reset_header_to_empty () {
+            title_label.label = tr ("No service selected");
+            status_badge.label = tr ("Inactive");
+            start_stop_btn.sensitive = false;
+            restart_btn.sensitive = false;
+            browser_btn.sensitive = false;
+            terminal_btn.sensitive = false;
+        }
+
+        private void update_header_title_and_metrics (ServiceDefinition s) {
+            DockerContainerInfo? matched_c = find_container_by_filter (s, active_container_filter);
+            string type_badge = get_service_type_badge (s.service_type);
+
+            if (matched_c != null) {
+                string stack_part = (s.stack != "") ? " <span size='small' foreground='#89b4fa'>(%s)</span>".printf (GLib.Markup.escape_text (s.stack)) : "";
+                title_label.label = "<b>%s</b>%s%s › <span foreground='#a6e3a1'><b>%s</b></span>".printf (
+                    GLib.Markup.escape_text (s.name),
+                    type_badge,
+                    stack_part,
+                    GLib.Markup.escape_text (matched_c.name)
+                );
+                metrics_label.label = tr ("Container RAM: %s | CPU: %.1f%% (Total stack: %s)").printf (
+                    matched_c.format_memory (),
+                    matched_c.cpu_percent,
+                    s.metrics.format_memory ()
+                );
+                return;
+            }
+
+            if (active_container_filter != null) {
+                string stack_part = (s.stack != "") ? " <span size='small' foreground='#89b4fa'>(%s)</span>".printf (GLib.Markup.escape_text (s.stack)) : "";
+                title_label.label = "<b>%s</b>%s%s › <span foreground='#a6e3a1'><b>%s</b></span>".printf (
+                    GLib.Markup.escape_text (s.name),
+                    type_badge,
+                    stack_part,
+                    GLib.Markup.escape_text (active_container_filter)
+                );
+                metrics_label.label = tr ("RAM: %s | CPU: %.1f%% | Uptime: %s").printf (
+                    s.metrics.format_memory (),
+                    s.metrics.cpu_percent,
+                    s.metrics.format_uptime ()
+                );
+                return;
             }
 
             if (s.stack != "") {
@@ -437,7 +696,36 @@ namespace Daemonette {
                 );
             }
 
-            // Update status badge
+            metrics_label.label = tr ("RAM: %s | CPU: %.1f%% | Uptime: %s").printf (
+                s.metrics.format_memory (),
+                s.metrics.cpu_percent,
+                s.metrics.format_uptime ()
+            );
+        }
+
+        private DockerContainerInfo? find_container_by_filter (ServiceDefinition s, string? filter) {
+            if (filter == null || filter == "") {
+                return null;
+            }
+            foreach (var c in s.docker_containers) {
+                if (c.name == filter || c.service_name == filter) {
+                    return c;
+                }
+            }
+            return null;
+        }
+
+        private string get_service_type_badge (ServiceType st) {
+            if (st == ServiceType.COMPOSE) {
+                return " <span size='small' foreground='#a6e3a1'>[Compose]</span>";
+            }
+            if (st == ServiceType.DOCKER) {
+                return " <span size='small' foreground='#89dceb'>[Docker]</span>";
+            }
+            return "";
+        }
+
+        private void update_header_status_badge (ServiceDefinition s) {
             var ctx = status_badge.get_style_context ();
             ctx.remove_class ("status-running");
             ctx.remove_class ("status-stopped");
@@ -480,24 +768,272 @@ namespace Daemonette {
                     restart_btn.sensitive = false;
                     break;
             }
+        }
 
-            metrics_label.label = tr ("RAM: %s | CPU: %.1f%% | Uptime: %s").printf (
-                s.metrics.format_memory (),
-                s.metrics.cpu_percent,
-                s.metrics.format_uptime ()
-            );
+        private void update_container_tab_title (ServiceDefinition s) {
+            int count = s.docker_containers.size;
+            string tab_title = (s.service_type == ServiceType.DOCKER)
+                ? tr ("📦 Container")
+                : (count > 0 ? tr ("🐳 Containers (%d)").printf (count) : tr ("🐳 Containers"));
+            main_stack.child_set (containers_scrolled, "title", tab_title, null);
+        }
 
-            browser_btn.sensitive = (s.url.strip () != "");
-            terminal_btn.sensitive = (s.working_directory.strip () != "");
+        private void populate_container_filter_combo (ServiceDefinition s) {
+            updating_filter_combo = true;
+            string? prev_filter = active_container_filter;
+            container_filter_combo.remove_all ();
+            container_filter_combo.append ("__all__", tr ("🐳 All Containers"));
+
+            bool found_prev = false;
+            foreach (var c in s.docker_containers) {
+                string target_name = c.name != "" ? c.name : c.service_name;
+                if (target_name == "") {
+                    continue;
+                }
+                container_filter_combo.append (target_name, target_name);
+                if (prev_filter != null && (prev_filter == target_name || prev_filter == c.name || prev_filter == c.service_name)) {
+                    found_prev = true;
+                    prev_filter = target_name;
+                }
+            }
+
+            if (found_prev && prev_filter != null) {
+                container_filter_combo.active_id = prev_filter;
+                active_container_filter = prev_filter;
+            } else if (prev_filter != null && s.docker_containers.size == 0) {
+                container_filter_combo.append (prev_filter, prev_filter);
+                container_filter_combo.active_id = prev_filter;
+                active_container_filter = prev_filter;
+            } else {
+                active_container_filter = null;
+                container_filter_combo.active_id = "__all__";
+            }
+            updating_filter_combo = false;
+        }
+
+        private void update_toolbar_visibility () {
+            if (current_service_id == null) {
+                view_toolbar.hide ();
+                return;
+            }
+            var s = service_manager.get_service (current_service_id);
+            if (s == null) {
+                view_toolbar.hide ();
+                return;
+            }
+
+            bool is_docker = (s.service_type == ServiceType.COMPOSE || s.service_type == ServiceType.DOCKER);
+            if (!is_docker) {
+                view_toolbar.hide ();
+                main_stack.set_visible_child_name ("logs");
+                return;
+            }
+
+            view_toolbar.show ();
+            main_stack_switcher.show ();
+            string? page = main_stack.visible_child_name;
+            if (page == null || page == "logs") {
+                container_filter_box.show_all ();
+                return;
+            }
+
+            container_filter_box.hide ();
+        }
+
+        private void on_container_filter_changed () {
+            if (updating_filter_combo) return;
+            string? active_id = container_filter_combo.active_id;
+            if (active_id == null || active_id == "__all__") {
+                active_container_filter = null;
+            } else {
+                active_container_filter = active_id;
+            }
+            update_header_for_current_service ();
+            reload_logs_for_current_service ();
+            sync_sidebar_selection ();
+        }
+
+        public static bool line_matches_container_filter (string line, string filter) {
+            if (filter == "" || filter == "__all__") {
+                return true;
+            }
+            string clean_line = AnsiParser.strip_ansi (line);
+            if (matches_pipe_prefix (clean_line, filter)) {
+                return true;
+            }
+            if (clean_line.contains (filter)) {
+                return true;
+            }
+            if (clean_line.has_prefix ("--- [") && clean_line.contains (filter)) {
+                return true;
+            }
+            return false;
+        }
+
+        private static bool matches_pipe_prefix (string clean_line, string filter) {
+            int pipe_pos = clean_line.index_of ("|");
+            if (pipe_pos <= 0) {
+                return false;
+            }
+            string prefix = clean_line.substring (0, pipe_pos).strip ();
+            return (prefix == filter || prefix.has_prefix (filter) || filter.has_prefix (prefix));
+        }
+
+        private void refresh_containers_view () {
+            foreach (var child in containers_listbox.get_children ()) {
+                containers_listbox.remove (child);
+            }
+
+            if (current_service_id == null) {
+                return;
+            }
+            var s = service_manager.get_service (current_service_id);
+            if (s == null) {
+                return;
+            }
+
+            if (s.docker_containers.size == 0) {
+                containers_listbox.add (create_empty_containers_row ());
+                containers_listbox.show_all ();
+                return;
+            }
+
+            foreach (var c in s.docker_containers) {
+                containers_listbox.add (create_container_inspector_row (s, c));
+            }
+
+            containers_listbox.show_all ();
+        }
+
+        private Gtk.ListBoxRow create_empty_containers_row () {
+            var empty_row = new Gtk.ListBoxRow ();
+            var empty_lbl = new Gtk.Label (tr ("No active containers found for this service.")) {
+                margin = 20,
+                xalign = 0.5f
+            };
+            empty_lbl.get_style_context ().add_class ("dim-label");
+            empty_row.add (empty_lbl);
+            return empty_row;
+        }
+
+        private Gtk.ListBoxRow create_container_inspector_row (ServiceDefinition s, DockerContainerInfo c) {
+            var row = new Gtk.ListBoxRow ();
+            var box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12) { margin = 10 };
+
+            var bullet_lbl = new Gtk.Label (get_container_status_bullet (c)) { xalign = 0.5f };
+            box.pack_start (bullet_lbl, false, false, 0);
+
+            box.pack_start (create_container_info_box (c), true, true, 0);
+            box.pack_start (create_container_metrics_box (c), false, false, 8);
+            box.pack_start (create_container_actions_box (s, c), false, false, 0);
+
+            row.add (box);
+            return row;
+        }
+
+        private Gtk.Box create_container_info_box (DockerContainerInfo c) {
+            var info_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 3) { hexpand = true };
+            string name_str = "<b>%s</b>".printf (GLib.Markup.escape_text (c.name));
+            if (c.service_name != "" && c.service_name != c.name) {
+                name_str += " <span size='small' foreground='#89dceb'>(service: %s)</span>".printf (GLib.Markup.escape_text (c.service_name));
+            }
+            var name_lbl = new Gtk.Label (name_str) { use_markup = true, xalign = 0 };
+
+            string sub_text = tr ("image: %s").printf (GLib.Markup.escape_text (c.image));
+            if (c.status_text != "") {
+                sub_text += " • " + GLib.Markup.escape_text (c.status_text);
+            }
+            if (c.health != "") {
+                string h_color = (c.health == "healthy") ? "#a6e3a1" : "#f38ba8";
+                sub_text += " • <span foreground='%s'><b>%s</b></span>".printf (h_color, GLib.Markup.escape_text (c.health));
+            }
+            var sub_lbl = new Gtk.Label (sub_text) { use_markup = true, xalign = 0 };
+            sub_lbl.get_style_context ().add_class ("dim-label");
+
+            info_box.pack_start (name_lbl, false, false, 0);
+            info_box.pack_start (sub_lbl, false, false, 0);
+
+            if (c.ports != "") {
+                var ports_lbl = new Gtk.Label ("<span size='small' foreground='#cdd6f4'>%s</span>".printf (GLib.Markup.escape_text (c.ports))) { use_markup = true, xalign = 0 };
+                info_box.pack_start (ports_lbl, false, false, 0);
+            }
+            return info_box;
+        }
+
+        private Gtk.Box create_container_metrics_box (DockerContainerInfo c) {
+            var metrics_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 2);
+            var ram_lbl = new Gtk.Label ("<b>%s</b>".printf (c.format_memory ())) { use_markup = true, xalign = 1 };
+            var cpu_lbl = new Gtk.Label ("<span size='small' foreground='#a6adc8'>%.1f%% CPU</span>".printf (c.cpu_percent)) { use_markup = true, xalign = 1 };
+            metrics_box.pack_start (ram_lbl, false, false, 0);
+            metrics_box.pack_start (cpu_lbl, false, false, 0);
+            return metrics_box;
+        }
+
+        private Gtk.Box create_container_actions_box (ServiceDefinition s, DockerContainerInfo c) {
+            var actions_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 4);
+
+            var view_btn = new Gtk.Button.from_icon_name ("text-x-generic-symbolic", Gtk.IconSize.BUTTON);
+            view_btn.tooltip_text = tr ("View logs for %s").printf (c.name);
+            string c_name = c.name;
+            view_btn.clicked.connect (() => {
+                select_container_logs (c_name);
+            });
+            actions_box.pack_start (view_btn, false, false, 0);
+
+            if (s.service_type == ServiceType.COMPOSE) {
+                var restart_btn = new Gtk.Button.from_icon_name ("view-refresh-symbolic", Gtk.IconSize.BUTTON);
+                string target_subservice = c.service_name != "" ? c.service_name : c.name;
+                restart_btn.tooltip_text = tr ("Restart container %s").printf (target_subservice);
+                restart_btn.clicked.connect (() => {
+                    restart_compose_subservice (s, target_subservice);
+                });
+                actions_box.pack_start (restart_btn, false, false, 0);
+            }
+
+            return actions_box;
+        }
+
+        private void select_container_logs (string container_name) {
+            updating_filter_combo = true;
+            container_filter_combo.active_id = container_name;
+            active_container_filter = container_name;
+            updating_filter_combo = false;
+
+            main_stack.set_visible_child_name ("logs");
+            update_header_for_current_service ();
+            reload_logs_for_current_service ();
+            sync_sidebar_selection ();
+        }
+
+        private void restart_compose_subservice (ServiceDefinition service, string subservice_name) {
+            var buf = process_runner.get_log_buffer (service.id);
+            string header = "--- [Restarting container: %s] ---".printf (subservice_name);
+            buf.append (header, false);
+            reload_logs_for_current_service ();
+
+            DockerRunner.restart_compose_subservice_async.begin (service, subservice_name, (obj, res) => {
+                bool ok = DockerRunner.restart_compose_subservice_async.end (res);
+                string msg = ok
+                    ? "--- [Container %s restarted successfully] ---".printf (subservice_name)
+                    : "--- [Failed to restart container %s] ---".printf (subservice_name);
+                buf.append (msg, !ok);
+                resource_monitor.poll_all_services ();
+                reload_logs_for_current_service ();
+            });
         }
 
         private void reload_logs_for_current_service () {
             log_textbuffer.text = "";
-            if (current_service_id == null) return;
+            if (current_service_id == null) {
+                return;
+            }
 
             var buf = process_runner.get_log_buffer (current_service_id);
             var entries = buf.get_entries ();
             foreach (var e in entries) {
+                if (active_container_filter != null && !line_matches_container_filter (e.text, active_container_filter)) {
+                    continue;
+                }
                 AnsiParser.insert_formatted (log_textbuffer, e.text);
             }
 
@@ -530,29 +1066,26 @@ namespace Daemonette {
         private void on_restart_clicked () {
             if (current_service_id == null) return;
             var s = service_manager.get_service (current_service_id);
-            if (s != null) {
-                process_runner.restart_service (s, s.active_variant_id);
-            }
+            if (s == null) return;
+            process_runner.restart_service (s, s.active_variant_id);
         }
 
         private void on_browser_clicked () {
             if (current_service_id == null) return;
             var s = service_manager.get_service (current_service_id);
-            if (s != null && s.url.strip () != "") {
-                try {
-                    GLib.AppInfo.launch_default_for_uri (s.url.strip (), null);
-                } catch (GLib.Error e) {
-                    GLib.warning ("No se pudo abrir URL %s: %s", s.url, e.message);
-                }
+            if (s == null || s.url.strip () == "") return;
+            try {
+                GLib.AppInfo.launch_default_for_uri (s.url.strip (), null);
+            } catch (GLib.Error e) {
+                GLib.warning ("Failed to open URL %s: %s", s.url, e.message);
             }
         }
 
         private void on_terminal_clicked () {
             if (current_service_id == null) return;
             var s = service_manager.get_service (current_service_id);
-            if (s != null) {
-                TerminalLauncher.open_terminal (s.working_directory);
-            }
+            if (s == null) return;
+            TerminalLauncher.open_terminal (s.working_directory);
         }
 
         private bool on_delete_event () {

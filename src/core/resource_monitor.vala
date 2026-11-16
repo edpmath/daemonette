@@ -14,6 +14,7 @@ namespace Daemonette {
         // CPU tracking per PGID: pgid -> previous ticks
         private Gee.HashMap<int, uint64?> prev_cpu_ticks;
         private Gee.HashMap<int, int64?> prev_sample_times;
+        private Gee.HashSet<string> docker_polling_services;
 
         public signal void metrics_updated ();
 
@@ -22,6 +23,7 @@ namespace Daemonette {
             this.process_runner = process_runner;
             this.prev_cpu_ticks = new Gee.HashMap<int, uint64?> ();
             this.prev_sample_times = new Gee.HashMap<int, int64?> ();
+            this.docker_polling_services = new Gee.HashSet<string> ();
 
             // Promptly poll after a service transitions to RUNNING
             process_runner.status_changed.connect ((s_id, status) => {
@@ -80,21 +82,7 @@ namespace Daemonette {
 
         private void update_running_service_metrics (ServiceDefinition service) {
             if (service.service_type == ServiceType.DOCKER || service.service_type == ServiceType.COMPOSE) {
-                string target = "";
-                if (service.service_type == ServiceType.DOCKER) {
-                    target = service.container_name.strip ();
-                } else if (service.compose_service != null && service.compose_service.strip () != "") {
-                    target = service.compose_service.strip ();
-                }
-
-                if (target != "") {
-                    uint64 mem_bytes = 0;
-                    double cpu_pct = 0.0;
-                    if (DockerRunner.query_container_metrics (target, out mem_bytes, out cpu_pct)) {
-                        service.metrics.memory_rss_bytes = mem_bytes;
-                        service.metrics.cpu_percent = cpu_pct;
-                    }
-                }
+                poll_docker_service_async.begin (service);
                 return;
             }
 
@@ -108,6 +96,23 @@ namespace Daemonette {
             service.metrics.memory_rss_bytes = rss_bytes;
 
             calculate_cpu_percent (service, pgid, total_ticks);
+        }
+
+        private async void poll_docker_service_async (ServiceDefinition service) {
+            if (docker_polling_services.contains (service.id)) {
+                return; // Prior query still running
+            }
+
+            docker_polling_services.add (service.id);
+
+            if (service.service_type == ServiceType.COMPOSE) {
+                yield DockerRunner.update_compose_metrics_async (service);
+            } else if (service.service_type == ServiceType.DOCKER) {
+                yield DockerRunner.update_docker_metrics_async (service);
+            }
+
+            docker_polling_services.remove (service.id);
+            metrics_updated ();
         }
 
         private void calculate_cpu_percent (ServiceDefinition service, int pgid, uint64 total_ticks) {
@@ -134,6 +139,13 @@ namespace Daemonette {
         }
 
         private void reset_stopped_service_metrics (ServiceDefinition service) {
+            if (service.service_type == ServiceType.COMPOSE || service.service_type == ServiceType.DOCKER) {
+                docker_polling_services.remove (service.id);
+                service.docker_containers.clear ();
+                service.metrics.reset ();
+                return;
+            }
+
             if (service.metrics.pid <= 0) {
                 return;
             }

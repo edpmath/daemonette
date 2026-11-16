@@ -54,6 +54,18 @@ namespace Daemonette {
             create_color_tag (buffer, "ansi_fg_97", "#bbc2cf");
         }
 
+        /**
+         * Strips ANSI escape codes from a string.
+         */
+        public static string strip_ansi (string text) {
+            try {
+                var regex = new GLib.Regex ("\\x1b\\[[0-9;]*[a-zA-Z]");
+                return regex.replace_literal (text, -1, 0, "");
+            } catch (GLib.RegexError e) {
+                return text;
+            }
+        }
+
         private static void create_color_tag (Gtk.TextBuffer buffer, string name, string hex_color) {
             var tag = add_tag (buffer, name);
             tag.foreground = hex_color;

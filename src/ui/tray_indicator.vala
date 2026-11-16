@@ -17,6 +17,7 @@ namespace Daemonette {
         public signal void request_new_service ();
         public signal void request_edit_service (string service_id);
         public signal void request_open_logs (string? service_id);
+        public signal void request_open_container_logs (string service_id, string container_name);
         public signal void request_quit ();
 
         public TrayIndicator (ServiceManager service_manager, ProcessRunner process_runner, ResourceMonitor resource_monitor) {
@@ -404,6 +405,12 @@ namespace Daemonette {
 
             submenu.append (new Gtk.SeparatorMenuItem ());
 
+            var containers_item = create_compose_containers_menu_item (service);
+            if (containers_item != null) {
+                submenu.append (containers_item);
+                submenu.append (new Gtk.SeparatorMenuItem ());
+            }
+
             string target_url = get_effective_url (service);
             if (target_url != "") {
                 var browser_item = new Gtk.MenuItem.with_label (tr ("🌐 Open in Browser (%s)").printf (target_url));
@@ -411,13 +418,62 @@ namespace Daemonette {
                     try {
                         GLib.AppInfo.launch_default_for_uri (target_url, null);
                     } catch (GLib.Error e) {
-                        GLib.warning ("No se pudo abrir URL %s: %s", target_url, e.message);
+                        GLib.warning ("Failed to open URL %s: %s", target_url, e.message);
                     }
                 });
                 submenu.append (browser_item);
             }
 
             append_common_service_actions (submenu, service, tr ("📋 View Logs & Resources..."));
+        }
+
+        private Gtk.MenuItem? create_compose_containers_menu_item (ServiceDefinition service) {
+            if (service.service_type != ServiceType.COMPOSE || service.docker_containers.size == 0) {
+                return null;
+            }
+
+            var containers_menu_item = new Gtk.MenuItem.with_label (tr ("🐳 Containers (%d)").printf (service.docker_containers.size));
+            var containers_sub = new Gtk.Menu ();
+
+            var all_logs_item = new Gtk.MenuItem.with_label (tr ("📋 All Logs (Unified)"));
+            all_logs_item.activate.connect (() => {
+                request_open_container_logs (service.id, "__all__");
+            });
+            containers_sub.append (all_logs_item);
+            containers_sub.append (new Gtk.SeparatorMenuItem ());
+
+            foreach (var c in service.docker_containers) {
+                containers_sub.append (create_single_container_menu_item (service, c));
+            }
+
+            containers_menu_item.set_submenu (containers_sub);
+            return containers_menu_item;
+        }
+
+        private Gtk.MenuItem create_single_container_menu_item (ServiceDefinition service, DockerContainerInfo c) {
+            string bullet = (c.state != "running") ? "⚪" : ((c.health == "unhealthy") ? "🔴" : "🟢");
+            string item_label = "%s %s (%s)".printf (bullet, c.name, c.format_memory ());
+            var c_item = new Gtk.MenuItem.with_label (item_label);
+            var c_sub = new Gtk.Menu ();
+
+            var c_log_item = new Gtk.MenuItem.with_label (tr ("📋 View Logs"));
+            string c_name = c.name;
+            c_log_item.activate.connect (() => {
+                request_open_container_logs (service.id, c_name);
+            });
+            c_sub.append (c_log_item);
+
+            var c_restart_item = new Gtk.MenuItem.with_label (tr ("🔄 Restart"));
+            string subsvc = c.service_name != "" ? c.service_name : c.name;
+            c_restart_item.activate.connect (() => {
+                DockerRunner.restart_compose_subservice_async.begin (service, subsvc, (obj, res) => {
+                    resource_monitor.poll_all_services ();
+                });
+            });
+            c_sub.append (c_restart_item);
+
+            c_item.set_submenu (c_sub);
+            return c_item;
         }
 
         private void build_stopped_service_submenu (Gtk.Menu submenu, ServiceDefinition service) {
@@ -532,7 +588,13 @@ namespace Daemonette {
                     string status_bullet;
                     string extra_info;
                     resolve_status_indicator (s, out status_bullet, out extra_info);
-                    entry.value.label = "%s %s %s".printf (status_bullet, s.name, extra_info);
+                    string type_icon = "";
+                    if (s.service_type == ServiceType.COMPOSE) {
+                        type_icon = "🐳 ";
+                    } else if (s.service_type == ServiceType.DOCKER) {
+                        type_icon = "📦 ";
+                    }
+                    entry.value.label = "%s %s%s %s".printf (status_bullet, type_icon, s.name, extra_info);
                 }
             }
         }

@@ -133,6 +133,23 @@ namespace Daemonette {
             es_dict.set ("Please specify at least the service name and container name or run command.", "Por favor especifica al menos el nombre y el contenedor o comando run.");
             es_dict.set ("▶ Start Compose (up -d)", "▶ Iniciar Compose (up -d)");
             es_dict.set ("▶ Start Container", "▶ Iniciar Contenedor");
+            es_dict.set ("📄 Logs", "📄 Logs");
+            es_dict.set ("🐳 Containers", "🐳 Contenedores");
+            es_dict.set ("🐳 Containers (%d)", "🐳 Contenedores (%d)");
+            es_dict.set ("📦 Container", "📦 Contenedor");
+            es_dict.set ("Container:", "Contenedor:");
+            es_dict.set ("Filter:", "Filtro:");
+            es_dict.set ("🐳 All Containers", "🐳 Todos los contenedores");
+            es_dict.set ("📋 All Logs (Unified)", "📋 Todos los logs (Unificado)");
+            es_dict.set ("📋 View Logs", "📋 Ver logs");
+            es_dict.set ("RAM: %s | CPU: %.1f%% (%s) | Stack: %s", "RAM: %s | CPU: %.1f%% (%s) | Stack: %s");
+            es_dict.set ("No active containers found for this service.", "No se encontraron contenedores activos para este servicio.");
+            es_dict.set ("View logs for %s", "Ver logs de %s");
+            es_dict.set ("Restart container %s", "Reiniciar contenedor %s");
+            es_dict.set ("Restart %s", "Reiniciar %s");
+            es_dict.set ("image: %s", "imagen: %s");
+            es_dict.set ("ports: %s", "puertos: %s");
+            es_dict.set ("Logs", "Logs");
 
             // Tray Indicator Menu
             es_dict.set ("[●] %d active | Total RAM: %s", "[●] %d activo(s) | RAM total: %s");

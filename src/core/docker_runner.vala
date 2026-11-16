@@ -14,24 +14,26 @@ namespace Daemonette {
         }
 
         public static string? get_docker_binary () {
-            if (!probed_docker) {
-                probed_docker = true;
-                string? in_path = GLib.Environment.find_program_in_path ("docker");
-                if (in_path != null && in_path != "" && GLib.FileUtils.test (in_path, GLib.FileTest.IS_EXECUTABLE)) {
-                    cached_docker_bin = in_path;
-                    return cached_docker_bin;
-                }
+            if (probed_docker) {
+                return cached_docker_bin;
+            }
 
-                string[] candidates = {
-                    "/usr/bin/docker",
-                    "/usr/local/bin/docker",
-                    "/bin/docker"
-                };
-                foreach (var c in candidates) {
-                    if (GLib.FileUtils.test (c, GLib.FileTest.IS_EXECUTABLE)) {
-                        cached_docker_bin = c;
-                        break;
-                    }
+            probed_docker = true;
+            string? in_path = GLib.Environment.find_program_in_path ("docker");
+            if (in_path != null && in_path != "" && GLib.FileUtils.test (in_path, GLib.FileTest.IS_EXECUTABLE)) {
+                cached_docker_bin = in_path;
+                return cached_docker_bin;
+            }
+
+            string[] candidates = {
+                "/usr/bin/docker",
+                "/usr/local/bin/docker",
+                "/bin/docker"
+            };
+            foreach (var c in candidates) {
+                if (GLib.FileUtils.test (c, GLib.FileTest.IS_EXECUTABLE)) {
+                    cached_docker_bin = c;
+                    break;
                 }
             }
             return cached_docker_bin;
@@ -42,35 +44,42 @@ namespace Daemonette {
          * If service.compose_file is relative or empty, looks in service.working_directory.
          */
         public static string resolve_compose_file (ServiceDefinition service) {
-            if (service.compose_file != null && service.compose_file.strip () != "") {
-                string path = service.compose_file.strip ();
-                if (GLib.Path.is_absolute (path)) {
-                    return path;
-                }
-                if (service.working_directory != null && service.working_directory.strip () != "") {
-                    return GLib.Path.build_filename (service.working_directory.strip (), path);
-                }
+            string raw = (service.compose_file != null) ? service.compose_file.strip () : "";
+            if (raw != "") {
+                return resolve_specified_compose_path (service, raw);
+            }
+            return resolve_default_compose_path (service);
+        }
+
+        private static string resolve_specified_compose_path (ServiceDefinition service, string path) {
+            if (GLib.Path.is_absolute (path)) {
                 return path;
             }
-
-            // If empty, search standard compose filenames in working_directory
-            if (service.working_directory != null && service.working_directory.strip () != "") {
-                string[] candidates = {
-                    "docker-compose.yml",
-                    "docker-compose.yaml",
-                    "compose.yml",
-                    "compose.yaml"
-                };
-                foreach (var c in candidates) {
-                    string full_path = GLib.Path.build_filename (service.working_directory.strip (), c);
-                    if (GLib.FileUtils.test (full_path, GLib.FileTest.EXISTS)) {
-                        return full_path;
-                    }
-                }
-                return GLib.Path.build_filename (service.working_directory.strip (), "docker-compose.yml");
+            string cwd = (service.working_directory != null) ? service.working_directory.strip () : "";
+            if (cwd != "") {
+                return GLib.Path.build_filename (cwd, path);
             }
+            return path;
+        }
 
-            return "docker-compose.yml";
+        private static string resolve_default_compose_path (ServiceDefinition service) {
+            string cwd = (service.working_directory != null) ? service.working_directory.strip () : "";
+            if (cwd == "") {
+                return "docker-compose.yml";
+            }
+            string[] candidates = {
+                "docker-compose.yml",
+                "docker-compose.yaml",
+                "compose.yml",
+                "compose.yaml"
+            };
+            foreach (var c in candidates) {
+                string full_path = GLib.Path.build_filename (cwd, c);
+                if (GLib.FileUtils.test (full_path, GLib.FileTest.EXISTS)) {
+                    return full_path;
+                }
+            }
+            return GLib.Path.build_filename (cwd, "docker-compose.yml");
         }
 
         /**
@@ -227,17 +236,19 @@ namespace Daemonette {
                     try {
                         parser.load_from_data (trimmed);
                         var root_node = parser.get_root ();
-                        if (root_node != null && root_node.get_node_type () == Json.NodeType.OBJECT) {
-                            var obj = root_node.get_object ();
-                            total_containers++;
-                            string state = obj.has_member ("State") ? obj.get_string_member ("State").down () : "";
-                            int exit_code = obj.has_member ("ExitCode") ? (int) obj.get_int_member ("ExitCode") : 0;
+                        if (root_node == null || root_node.get_node_type () != Json.NodeType.OBJECT) {
+                            continue;
+                        }
 
-                            if (state == "running") {
-                                running_containers++;
-                            } else if (exit_code != 0) {
-                                failed_containers++;
-                            }
+                        var obj = root_node.get_object ();
+                        total_containers++;
+                        string state = obj.has_member ("State") ? obj.get_string_member ("State").down () : "";
+                        int exit_code = obj.has_member ("ExitCode") ? (int) obj.get_int_member ("ExitCode") : 0;
+
+                        if (state == "running") {
+                            running_containers++;
+                        } else if (exit_code != 0) {
+                            failed_containers++;
                         }
                     } catch (GLib.Error e) {
                         // Ignore malformed JSON line
@@ -251,7 +262,7 @@ namespace Daemonette {
                     return ServiceStatus.RUNNING;
                 }
                 if (running_containers > 0) {
-                    return ServiceStatus.RUNNING; // At least partially running
+                    return ServiceStatus.RUNNING;
                 }
                 if (failed_containers > 0) {
                     return ServiceStatus.FAILED;
@@ -283,15 +294,22 @@ namespace Daemonette {
                 var parser = new Json.Parser ();
                 parser.load_from_data (stdout_buf.strip ());
                 var root = parser.get_root ();
-                if (root != null && root.get_node_type () == Json.NodeType.OBJECT) {
-                    var obj = root.get_object ();
-                    bool is_running = obj.has_member ("Running") ? obj.get_boolean_member ("Running") : false;
-                    bool is_restarting = obj.has_member ("Restarting") ? obj.get_boolean_member ("Restarting") : false;
-                    int exit_code = obj.has_member ("ExitCode") ? (int) obj.get_int_member ("ExitCode") : 0;
+                if (root == null || root.get_node_type () != Json.NodeType.OBJECT) {
+                    return ServiceStatus.STOPPED;
+                }
 
-                    if (is_running) return ServiceStatus.RUNNING;
-                    if (is_restarting) return ServiceStatus.STARTING;
-                    if (exit_code != 0) return ServiceStatus.FAILED;
+                var obj = root.get_object ();
+                bool is_running = obj.has_member ("Running") ? obj.get_boolean_member ("Running") : false;
+                if (is_running) {
+                    return ServiceStatus.RUNNING;
+                }
+                bool is_restarting = obj.has_member ("Restarting") ? obj.get_boolean_member ("Restarting") : false;
+                if (is_restarting) {
+                    return ServiceStatus.STARTING;
+                }
+                int exit_code = obj.has_member ("ExitCode") ? (int) obj.get_int_member ("ExitCode") : 0;
+                if (exit_code != 0) {
+                    return ServiceStatus.FAILED;
                 }
                 return ServiceStatus.STOPPED;
             } catch (GLib.Error e) {
@@ -325,22 +343,18 @@ namespace Daemonette {
                 var parser = new Json.Parser ();
                 parser.load_from_data (stdout_buf.strip ());
                 var root = parser.get_root ();
-                if (root != null && root.get_node_type () == Json.NodeType.OBJECT) {
-                    var obj = root.get_object ();
-                    if (obj.has_member ("CPUPerc")) {
-                        string cpu_str = obj.get_string_member ("CPUPerc").replace ("%", "").strip ();
-                        cpu_pct = double.parse (cpu_str);
-                    }
-                    if (obj.has_member ("MemUsage")) {
-                        string mem_str = obj.get_string_member ("MemUsage");
-                        // Format is e.g. "37.62MiB / 7.569GiB"
-                        string[] parts = mem_str.split ("/");
-                        if (parts.length > 0) {
-                            mem_bytes = parse_byte_size (parts[0].strip ());
-                        }
-                    }
-                    return true;
+                if (root == null || root.get_node_type () != Json.NodeType.OBJECT) {
+                    return false;
                 }
+
+                var obj = root.get_object ();
+                if (obj.has_member ("CPUPerc")) {
+                    cpu_pct = parse_cpu_percentage (obj.get_string_member ("CPUPerc"));
+                }
+                if (obj.has_member ("MemUsage")) {
+                    mem_bytes = parse_mem_usage_string (obj.get_string_member ("MemUsage"));
+                }
+                return true;
             } catch (GLib.Error e) {
                 // Ignore query failures
             }
@@ -348,7 +362,7 @@ namespace Daemonette {
             return false;
         }
 
-        private static uint64 parse_byte_size (string size_str) {
+        public static uint64 parse_byte_size (string size_str) {
             string s = size_str.strip ();
             double val = 0.0;
 
@@ -367,6 +381,309 @@ namespace Daemonette {
             }
 
             return 0;
+        }
+
+        public static double parse_cpu_percentage (string cpu_str) {
+            string s = cpu_str.replace ("%", "").strip ();
+            if (s == "") return 0.0;
+            double val = double.parse (s);
+            return val >= 0.0 ? val : 0.0;
+        }
+
+        public static uint64 parse_mem_usage_string (string mem_usage) {
+            string[] parts = mem_usage.split ("/");
+            if (parts.length > 0) {
+                return parse_byte_size (parts[0].strip ());
+            }
+            return 0;
+        }
+
+        /**
+         * Parses docker compose ps JSON output into DockerContainerInfo objects.
+         * Handles both line-delimited JSON objects and JSON arrays.
+         */
+        public static Gee.ArrayList<DockerContainerInfo> parse_compose_ps_json (string json_output) {
+            var list = new Gee.ArrayList<DockerContainerInfo> ();
+            if (json_output.strip () == "") return list;
+
+            string[] lines = json_output.strip ().split ("\n");
+            var parser = new Json.Parser ();
+
+            foreach (var line in lines) {
+                string trimmed = line.strip ();
+                if (trimmed == "") continue;
+
+                try {
+                    parser.load_from_data (trimmed);
+                    var root = parser.get_root ();
+                    if (root == null) continue;
+
+                    parse_containers_from_root (list, root);
+                } catch (GLib.Error e) {
+                    // Ignore line errors
+                }
+            }
+            return list;
+        }
+
+        private static void parse_containers_from_root (Gee.ArrayList<DockerContainerInfo> list, Json.Node root) {
+            if (root.get_node_type () == Json.NodeType.OBJECT) {
+                parse_and_add_container (list, root);
+                return;
+            }
+            if (root.get_node_type () == Json.NodeType.ARRAY) {
+                var arr = root.get_array ();
+                for (uint i = 0; i < arr.get_length (); i++) {
+                    parse_and_add_container (list, arr.get_element (i));
+                }
+            }
+        }
+
+        private static void parse_and_add_container (Gee.ArrayList<DockerContainerInfo> list, Json.Node node) {
+            if (node.get_node_type () != Json.NodeType.OBJECT) {
+                return;
+            }
+            var info = parse_container_json_object (node.get_object ());
+            if (info != null) {
+                list.add (info);
+            }
+        }
+
+        private static DockerContainerInfo? parse_container_json_object (Json.Object obj) {
+            string id = obj.has_member ("ID") ? obj.get_string_member ("ID") : "";
+            string name = obj.has_member ("Name") ? obj.get_string_member ("Name") : "";
+            string service = obj.has_member ("Service") ? obj.get_string_member ("Service") : "";
+            string image = obj.has_member ("Image") ? obj.get_string_member ("Image") : "";
+            string state = obj.has_member ("State") ? obj.get_string_member ("State").down () : "";
+            string status = obj.has_member ("Status") ? obj.get_string_member ("Status") : "";
+            string health = obj.has_member ("Health") ? obj.get_string_member ("Health").down () : "";
+            string ports = obj.has_member ("Ports") ? obj.get_string_member ("Ports") : "";
+
+            if (name == "" && service != "") {
+                name = service;
+            }
+            if (service == "" && name != "") {
+                service = name;
+            }
+
+            if (id == "" && name == "") return null;
+
+            return new DockerContainerInfo (id, name, service, image, state, status, health, ports);
+        }
+
+        /**
+         * Applies parsed docker stats JSON output to an array of DockerContainerInfo.
+         */
+        public static void apply_stats_json_to_containers (string stats_json, Gee.ArrayList<DockerContainerInfo> containers) {
+            if (stats_json.strip () == "" || containers.size == 0) return;
+
+            string[] lines = stats_json.strip ().split ("\n");
+            var parser = new Json.Parser ();
+
+            foreach (var line in lines) {
+                string trimmed = line.strip ();
+                if (trimmed == "") continue;
+
+                try {
+                    parser.load_from_data (trimmed);
+                    var root = parser.get_root ();
+                    if (root == null || root.get_node_type () != Json.NodeType.OBJECT) continue;
+
+                    apply_stat_object_to_containers (root.get_object (), containers);
+                } catch (GLib.Error e) {
+                    // Ignore malformed line
+                }
+            }
+        }
+
+        private static void apply_stat_object_to_containers (Json.Object obj, Gee.ArrayList<DockerContainerInfo> containers) {
+            string stat_id = obj.has_member ("ID") ? obj.get_string_member ("ID").strip () : "";
+            string stat_name = obj.has_member ("Name") ? obj.get_string_member ("Name").strip () : "";
+            string stat_container = obj.has_member ("Container") ? obj.get_string_member ("Container").strip () : "";
+            string cpu_str = obj.has_member ("CPUPerc") ? obj.get_string_member ("CPUPerc") : "0%";
+            string mem_str = obj.has_member ("MemUsage") ? obj.get_string_member ("MemUsage") : "0B";
+
+            double cpu = parse_cpu_percentage (cpu_str);
+            uint64 mem = parse_mem_usage_string (mem_str);
+
+            foreach (var c in containers) {
+                if (!container_matches_stats (c, stat_id, stat_name, stat_container)) {
+                    continue;
+                }
+                c.cpu_percent = cpu;
+                c.memory_bytes = mem;
+                break;
+            }
+        }
+
+        private static bool container_matches_stats (DockerContainerInfo c, string stat_id, string stat_name, string stat_container) {
+            if (stat_id != "" && (c.id == stat_id || c.id.has_prefix (stat_id) || stat_id.has_prefix (c.id))) {
+                return true;
+            }
+            if (stat_name != "" && (c.name == stat_name || c.service_name == stat_name)) {
+                return true;
+            }
+            if (stat_container != "" && (c.id == stat_container || stat_container.has_prefix (c.id))) {
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * Asynchronously queries all containers belonging to a Compose service.
+         */
+        public static async Gee.ArrayList<DockerContainerInfo> query_compose_containers_async (ServiceDefinition service) {
+            if (!is_docker_available ()) {
+                return new Gee.ArrayList<DockerContainerInfo> ();
+            }
+
+            string[] argv = build_compose_argv (service, "ps", { "--all", "--format", "json" });
+            try {
+                var launcher = new GLib.SubprocessLauncher (GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_SILENCE);
+                if (service.working_directory != null && service.working_directory.strip () != "") {
+                    launcher.set_cwd (service.working_directory);
+                }
+                var subp = launcher.spawnv (argv);
+                string stdout_buf;
+                yield subp.communicate_utf8_async (null, null, out stdout_buf, null);
+
+                if (stdout_buf != null) {
+                    return parse_compose_ps_json (stdout_buf);
+                }
+            } catch (GLib.Error e) {
+                GLib.warning ("Error querying compose containers for '%s': %s", service.name, e.message);
+            }
+
+            return new Gee.ArrayList<DockerContainerInfo> ();
+        }
+
+        /**
+         * Asynchronously updates the metrics and container list for a Compose stack.
+         */
+        public static async void update_compose_metrics_async (ServiceDefinition service) {
+            var containers = yield query_compose_containers_async (service);
+            if (containers.size == 0) {
+                service.docker_containers = containers;
+                service.metrics.memory_rss_bytes = 0;
+                service.metrics.cpu_percent = 0.0;
+                return;
+            }
+
+            var running_ids = get_running_container_ids (containers);
+            if (running_ids.size > 0) {
+                yield fetch_and_apply_container_stats_async (running_ids, containers, service.name);
+            }
+
+            uint64 total_mem = 0;
+            double total_cpu = 0.0;
+            foreach (var c in containers) {
+                total_mem += c.memory_bytes;
+                total_cpu += c.cpu_percent;
+            }
+
+            service.docker_containers = containers;
+            service.metrics.memory_rss_bytes = total_mem;
+            service.metrics.cpu_percent = total_cpu;
+        }
+
+        private static Gee.ArrayList<string> get_running_container_ids (Gee.ArrayList<DockerContainerInfo> containers) {
+            var running_ids = new Gee.ArrayList<string> ();
+            foreach (var c in containers) {
+                if (c.state == "running" && c.id != "") {
+                    running_ids.add (c.id);
+                }
+            }
+            return running_ids;
+        }
+
+        private static async void fetch_and_apply_container_stats_async (Gee.ArrayList<string> running_ids, Gee.ArrayList<DockerContainerInfo> containers, string service_name) {
+            string docker = get_docker_binary () ?? "docker";
+            var args = new Gee.ArrayList<string> ();
+            args.add (docker);
+            args.add ("stats");
+            args.add ("--no-stream");
+            args.add ("--format");
+            args.add ("{{json .}}");
+            foreach (var id in running_ids) {
+                args.add (id);
+            }
+
+            string[] argv = new string[args.size];
+            for (int i = 0; i < args.size; i++) {
+                argv[i] = args[i];
+            }
+
+            try {
+                var subp = new GLib.Subprocess.newv (argv, GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_SILENCE);
+                string stdout_buf;
+                yield subp.communicate_utf8_async (null, null, out stdout_buf, null);
+
+                if (stdout_buf != null) {
+                    apply_stats_json_to_containers (stdout_buf, containers);
+                }
+            } catch (GLib.Error e) {
+                GLib.warning ("Error querying container stats for '%s': %s", service_name, e.message);
+            }
+        }
+
+        /**
+         * Asynchronously updates metrics for a standalone Docker container.
+         */
+        public static async void update_docker_metrics_async (ServiceDefinition service) {
+            string target = service.container_name.strip ();
+            if (target == "" || !is_docker_available ()) {
+                service.metrics.memory_rss_bytes = 0;
+                service.metrics.cpu_percent = 0.0;
+                return;
+            }
+
+            string docker = get_docker_binary () ?? "docker";
+            string[] argv = { docker, "stats", "--no-stream", "--format", "{{json .}}", target };
+
+            try {
+                var subp = new GLib.Subprocess.newv (argv, GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_SILENCE);
+                string stdout_buf;
+                yield subp.communicate_utf8_async (null, null, out stdout_buf, null);
+
+                if (stdout_buf == null || stdout_buf.strip () == "") {
+                    return;
+                }
+
+                var containers = new Gee.ArrayList<DockerContainerInfo> ();
+                var c = new DockerContainerInfo ("", target, target, "", "running", "running");
+                containers.add (c);
+                apply_stats_json_to_containers (stdout_buf, containers);
+
+                service.docker_containers = containers;
+                service.metrics.memory_rss_bytes = c.memory_bytes;
+                service.metrics.cpu_percent = c.cpu_percent;
+            } catch (GLib.Error e) {
+                // Failed query
+            }
+        }
+
+        /**
+         * Asynchronously restarts a specific sub-service inside a Docker Compose project.
+         */
+        public static async bool restart_compose_subservice_async (ServiceDefinition service, string subservice_name) {
+            if (!is_docker_available () || subservice_name.strip () == "") {
+                return false;
+            }
+
+            string[] argv = build_compose_argv (service, "restart", { subservice_name.strip () });
+            try {
+                var launcher = new GLib.SubprocessLauncher (GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_PIPE);
+                if (service.working_directory != null && service.working_directory.strip () != "") {
+                    launcher.set_cwd (service.working_directory);
+                }
+                var subp = launcher.spawnv (argv);
+                string stdout_buf, stderr_buf;
+                yield subp.communicate_utf8_async (null, null, out stdout_buf, out stderr_buf);
+                return (subp.get_exit_status () == 0);
+            } catch (GLib.Error e) {
+                GLib.warning ("Failed to restart compose subservice '%s': %s", subservice_name, e.message);
+                return false;
+            }
         }
     }
 }
