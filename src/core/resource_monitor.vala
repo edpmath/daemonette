@@ -72,6 +72,11 @@ namespace Daemonette {
                     continue;
                 }
 
+                bool is_docker_srv = (service.service_type == ServiceType.COMPOSE || service.service_type == ServiceType.DOCKER);
+                if (is_docker_srv && service.docker_containers.size == 0) {
+                    poll_docker_service_async.begin (service);
+                }
+
                 reset_stopped_service_metrics (service);
             }
 
@@ -141,8 +146,15 @@ namespace Daemonette {
         private void reset_stopped_service_metrics (ServiceDefinition service) {
             if (service.service_type == ServiceType.COMPOSE || service.service_type == ServiceType.DOCKER) {
                 docker_polling_services.remove (service.id);
-                service.docker_containers.clear ();
                 service.metrics.reset ();
+                foreach (var c in service.docker_containers) {
+                    c.memory_bytes = 0;
+                    c.cpu_percent = 0.0;
+                    if (service.status == ServiceStatus.STOPPED && c.state == "running") {
+                        c.state = "stopped";
+                        c.status_text = "Stopped";
+                    }
+                }
                 return;
             }
 

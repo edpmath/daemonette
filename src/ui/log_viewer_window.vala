@@ -487,11 +487,14 @@ namespace Daemonette {
             sub_box.margin_end = 6;
             sub_box.margin_start = 22;
 
-            string c_bullet = get_container_status_bullet (c);
+            string c_bullet = c.get_status_bullet ();
             var c_title = new Gtk.Label ("%s <span foreground='#cdd6f4'>%s</span>".printf (c_bullet, GLib.Markup.escape_text (c.name))) { use_markup = true, xalign = 0 };
             string c_sub = c.format_memory ();
             if (c.cpu_percent > 0.0) {
                 c_sub += " • %.1f%% CPU".printf (c.cpu_percent);
+            }
+            if (c.state != "running") {
+                c_sub = c.is_failed () ? tr ("Failed") : tr ("Stopped");
             }
             var c_mem = new Gtk.Label ("<span size='small' foreground='#a6adc8'>%s</span>".printf (c_sub)) { use_markup = true, xalign = 0 };
 
@@ -505,16 +508,7 @@ namespace Daemonette {
         }
 
         private string get_container_status_bullet (DockerContainerInfo c) {
-            if (c.state == "starting") {
-                return "🟡";
-            }
-            if (c.state != "running") {
-                return "⚪";
-            }
-            if (c.health == "unhealthy") {
-                return "🔴";
-            }
-            return "🟢";
+            return c.get_status_bullet ();
         }
 
         private int last_sidebar_container_count = -1;
@@ -557,21 +551,22 @@ namespace Daemonette {
                 return;
             }
 
+            var title_lbl = (Gtk.Label) children.nth_data (0);
             var mem_lbl = (Gtk.Label) children.nth_data (1);
             string? c_name = row.get_data ("container_name");
 
             if (c_name != null) {
-                update_container_row_metric (mem_lbl, s, c_name);
+                update_container_row_metric (title_lbl, mem_lbl, s, c_name);
                 return;
             }
 
-            update_service_row_metric (mem_lbl, s);
+            update_service_row_metric (title_lbl, mem_lbl, s);
         }
 
-        private void update_container_row_metric (Gtk.Label mem_lbl, ServiceDefinition s, string c_name) {
+        private void update_container_row_metric (Gtk.Label title_lbl, Gtk.Label mem_lbl, ServiceDefinition s, string c_name) {
             DockerContainerInfo? matched_c = null;
             foreach (var c in s.docker_containers) {
-                if (c.name == c_name) {
+                if (c.name == c_name || c.service_name == c_name) {
                     matched_c = c;
                     break;
                 }
@@ -579,14 +574,40 @@ namespace Daemonette {
             if (matched_c == null) {
                 return;
             }
+
+            string c_bullet = matched_c.get_status_bullet ();
+            title_lbl.label = "%s <span foreground='#cdd6f4'>%s</span>".printf (c_bullet, GLib.Markup.escape_text (matched_c.name));
+
             string c_sub = matched_c.format_memory ();
             if (matched_c.cpu_percent > 0.0) {
                 c_sub += " • %.1f%% CPU".printf (matched_c.cpu_percent);
             }
+            if (matched_c.state != "running") {
+                c_sub = matched_c.is_failed () ? tr ("Failed") : tr ("Stopped");
+            }
             mem_lbl.label = "<span size='small' foreground='#a6adc8'>%s</span>".printf (c_sub);
         }
 
-        private void update_service_row_metric (Gtk.Label mem_lbl, ServiceDefinition s) {
+        private void update_service_row_metric (Gtk.Label title_lbl, Gtk.Label mem_lbl, ServiceDefinition s) {
+            string bullet;
+            switch (s.status) {
+                case ServiceStatus.RUNNING: bullet = "🟢"; break;
+                case ServiceStatus.STARTING: bullet = "🟡"; break;
+                case ServiceStatus.STOPPING: bullet = "🟠"; break;
+                case ServiceStatus.FAILED: bullet = "🔴"; break;
+                case ServiceStatus.STOPPED:
+                default: bullet = "⚪"; break;
+            }
+
+            string type_tag = "";
+            if (s.service_type == ServiceType.COMPOSE) {
+                type_tag = "🐳 ";
+            } else if (s.service_type == ServiceType.DOCKER) {
+                type_tag = "📦 ";
+            }
+
+            title_lbl.label = "%s %s%s".printf (bullet, type_tag, GLib.Markup.escape_text (s.name));
+
             string mem_text = (s.status == ServiceStatus.RUNNING) ? s.metrics.format_memory () : tr ("Stopped");
             string subtitle = mem_text;
             if (s.service_type != ServiceType.PROCESS) {
@@ -726,6 +747,55 @@ namespace Daemonette {
         }
 
         private void update_header_status_badge (ServiceDefinition s) {
+            DockerContainerInfo? matched_c = find_container_by_filter (s, active_container_filter);
+            if (matched_c != null) {
+                update_header_status_badge_for_container (matched_c);
+                return;
+            }
+            update_header_status_badge_for_service (s);
+        }
+
+        private void update_header_status_badge_for_container (DockerContainerInfo c) {
+            var ctx = status_badge.get_style_context ();
+            ctx.remove_class ("status-running");
+            ctx.remove_class ("status-stopped");
+            ctx.remove_class ("status-failed");
+
+            if (c.is_failed ()) {
+                status_badge.label = tr ("Error / Failed");
+                ctx.add_class ("status-failed");
+                start_stop_btn.label = tr ("▶ Start");
+                start_stop_btn.sensitive = true;
+                restart_btn.sensitive = true;
+                return;
+            }
+
+            if (c.is_running ()) {
+                status_badge.label = tr ("Running");
+                ctx.add_class ("status-running");
+                start_stop_btn.label = tr ("⏹ Stop");
+                start_stop_btn.sensitive = true;
+                restart_btn.sensitive = true;
+                return;
+            }
+
+            if (c.state == "starting") {
+                status_badge.label = tr ("Starting...");
+                ctx.add_class ("status-running");
+                start_stop_btn.label = tr ("⏹ Stop");
+                start_stop_btn.sensitive = true;
+                restart_btn.sensitive = false;
+                return;
+            }
+
+            status_badge.label = tr ("Stopped");
+            ctx.add_class ("status-stopped");
+            start_stop_btn.label = tr ("▶ Start");
+            start_stop_btn.sensitive = true;
+            restart_btn.sensitive = false;
+        }
+
+        private void update_header_status_badge_for_service (ServiceDefinition s) {
             var ctx = status_badge.get_style_context ();
             ctx.remove_class ("status-running");
             ctx.remove_class ("status-stopped");
@@ -981,16 +1051,37 @@ namespace Daemonette {
             actions_box.pack_start (view_btn, false, false, 0);
 
             if (s.service_type == ServiceType.COMPOSE) {
-                var restart_btn = new Gtk.Button.from_icon_name ("view-refresh-symbolic", Gtk.IconSize.BUTTON);
-                string target_subservice = c.service_name != "" ? c.service_name : c.name;
-                restart_btn.tooltip_text = tr ("Restart container %s").printf (target_subservice);
-                restart_btn.clicked.connect (() => {
-                    restart_compose_subservice (s, target_subservice);
-                });
-                actions_box.pack_start (restart_btn, false, false, 0);
+                append_compose_container_action_buttons (actions_box, s, c);
             }
 
             return actions_box;
+        }
+
+        private void append_compose_container_action_buttons (Gtk.Box actions_box, ServiceDefinition s, DockerContainerInfo c) {
+            string target_subservice = c.service_name != "" ? c.service_name : c.name;
+
+            if (c.state != "running") {
+                var start_btn = new Gtk.Button.from_icon_name ("media-playback-start-symbolic", Gtk.IconSize.BUTTON);
+                start_btn.tooltip_text = tr ("Start container %s").printf (target_subservice);
+                start_btn.clicked.connect (() => {
+                    start_compose_subservice (s, target_subservice);
+                });
+                actions_box.pack_start (start_btn, false, false, 0);
+            } else {
+                var stop_btn = new Gtk.Button.from_icon_name ("media-playback-stop-symbolic", Gtk.IconSize.BUTTON);
+                stop_btn.tooltip_text = tr ("Stop container %s").printf (target_subservice);
+                stop_btn.clicked.connect (() => {
+                    stop_compose_subservice (s, target_subservice);
+                });
+                actions_box.pack_start (stop_btn, false, false, 0);
+            }
+
+            var restart_btn = new Gtk.Button.from_icon_name ("view-refresh-symbolic", Gtk.IconSize.BUTTON);
+            restart_btn.tooltip_text = tr ("Restart container %s").printf (target_subservice);
+            restart_btn.clicked.connect (() => {
+                restart_compose_subservice (s, target_subservice);
+            });
+            actions_box.pack_start (restart_btn, false, false, 0);
         }
 
         private void select_container_logs (string container_name) {
@@ -1003,6 +1094,40 @@ namespace Daemonette {
             update_header_for_current_service ();
             reload_logs_for_current_service ();
             sync_sidebar_selection ();
+        }
+
+        private void start_compose_subservice (ServiceDefinition service, string subservice_name) {
+            var buf = process_runner.get_log_buffer (service.id);
+            string header = "--- [Starting container: %s] ---".printf (subservice_name);
+            buf.append (header, false);
+            reload_logs_for_current_service ();
+
+            DockerRunner.start_compose_subservice_async.begin (service, subservice_name, (obj, res) => {
+                bool ok = DockerRunner.start_compose_subservice_async.end (res);
+                string msg = ok
+                    ? "--- [Container %s started successfully] ---".printf (subservice_name)
+                    : "--- [Failed to start container %s] ---".printf (subservice_name);
+                buf.append (msg, !ok);
+                resource_monitor.poll_all_services ();
+                reload_logs_for_current_service ();
+            });
+        }
+
+        private void stop_compose_subservice (ServiceDefinition service, string subservice_name) {
+            var buf = process_runner.get_log_buffer (service.id);
+            string header = "--- [Stopping container: %s] ---".printf (subservice_name);
+            buf.append (header, false);
+            reload_logs_for_current_service ();
+
+            DockerRunner.stop_compose_subservice_async.begin (service, subservice_name, (obj, res) => {
+                bool ok = DockerRunner.stop_compose_subservice_async.end (res);
+                string msg = ok
+                    ? "--- [Container %s stopped successfully] ---".printf (subservice_name)
+                    : "--- [Failed to stop container %s] ---".printf (subservice_name);
+                buf.append (msg, !ok);
+                resource_monitor.poll_all_services ();
+                reload_logs_for_current_service ();
+            });
         }
 
         private void restart_compose_subservice (ServiceDefinition service, string subservice_name) {
@@ -1055,6 +1180,17 @@ namespace Daemonette {
             var s = service_manager.get_service (current_service_id);
             if (s == null) return;
 
+            DockerContainerInfo? matched_c = find_container_by_filter (s, active_container_filter);
+            if (matched_c != null && s.service_type == ServiceType.COMPOSE) {
+                string target_sub = matched_c.service_name != "" ? matched_c.service_name : matched_c.name;
+                if (matched_c.is_running ()) {
+                    stop_compose_subservice (s, target_sub);
+                } else {
+                    start_compose_subservice (s, target_sub);
+                }
+                return;
+            }
+
             if (s.status == ServiceStatus.RUNNING || s.status == ServiceStatus.STARTING) {
                 process_runner.stop_service (s.id);
                 return;
@@ -1067,6 +1203,14 @@ namespace Daemonette {
             if (current_service_id == null) return;
             var s = service_manager.get_service (current_service_id);
             if (s == null) return;
+
+            DockerContainerInfo? matched_c = find_container_by_filter (s, active_container_filter);
+            if (matched_c != null && s.service_type == ServiceType.COMPOSE) {
+                string target_sub = matched_c.service_name != "" ? matched_c.service_name : matched_c.name;
+                restart_compose_subservice (s, target_sub);
+                return;
+            }
+
             process_runner.restart_service (s, s.active_variant_id);
         }
 

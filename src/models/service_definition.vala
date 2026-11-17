@@ -184,10 +184,11 @@ namespace Daemonette {
         public string status_text { get; set; default = ""; }
         public string health { get; set; default = ""; }
         public string ports { get; set; default = ""; }
+        public int exit_code { get; set; default = 0; }
         public uint64 memory_bytes { get; set; default = 0; }
         public double cpu_percent { get; set; default = 0.0; }
 
-        public DockerContainerInfo (string id, string name, string service_name, string image, string state, string status_text, string health = "", string ports = "") {
+        public DockerContainerInfo (string id, string name, string service_name, string image, string state, string status_text, string health = "", string ports = "", int exit_code = 0) {
             this.id = id;
             this.name = name;
             this.service_name = service_name;
@@ -196,8 +197,45 @@ namespace Daemonette {
             this.status_text = status_text;
             this.health = health;
             this.ports = ports;
+            this.exit_code = exit_code;
             this.memory_bytes = 0;
             this.cpu_percent = 0.0;
+        }
+
+        public bool is_running () {
+            return state == "running";
+        }
+
+        public bool is_failed () {
+            if (state == "dead") {
+                return true;
+            }
+            if (health == "unhealthy") {
+                return true;
+            }
+            if (exit_code != 0) {
+                return true;
+            }
+            if (state == "exited" && (status_text.contains ("Exited (1") || status_text.contains ("error"))) {
+                return true;
+            }
+            return false;
+        }
+
+        public string get_status_bullet () {
+            if (is_failed ()) {
+                return "🔴";
+            }
+            if (state == "starting" || health == "starting") {
+                return "🟡";
+            }
+            if (is_running ()) {
+                return "🟢";
+            }
+            if (state == "paused") {
+                return "⏸";
+            }
+            return "⚪";
         }
 
         public string format_memory () {
@@ -211,7 +249,7 @@ namespace Daemonette {
         }
 
         public DockerContainerInfo clone () {
-            var c = new DockerContainerInfo (this.id, this.name, this.service_name, this.image, this.state, this.status_text, this.health, this.ports);
+            var c = new DockerContainerInfo (this.id, this.name, this.service_name, this.image, this.state, this.status_text, this.health, this.ports, this.exit_code);
             c.memory_bytes = this.memory_bytes;
             c.cpu_percent = this.cpu_percent;
             return c;

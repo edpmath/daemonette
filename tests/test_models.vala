@@ -120,7 +120,33 @@ namespace Daemonette.Tests {
         assert_true (info.status_text == "Up 10 minutes");
         assert_true (info.health == "healthy");
         assert_true (info.ports == "0.0.0.0:5432->5432/tcp");
+        assert_true (info.exit_code == 0);
+        assert_true (info.is_running () == true);
+        assert_true (info.is_failed () == false);
+        assert_true (info.get_status_bullet () == "🟢");
         assert_true (info.format_memory () == "0 KB");
+
+        // Stopped container (exit code 0)
+        var stopped = new DockerContainerInfo ("cnt_stop", "redis-cache", "redis", "redis:alpine", "exited", "Exited (0) 5m ago", "", "", 0);
+        assert_true (stopped.is_running () == false);
+        assert_true (stopped.is_failed () == false);
+        assert_true (stopped.get_status_bullet () == "⚪");
+
+        // Failed container (non-zero exit code)
+        var failed_code = new DockerContainerInfo ("cnt_fail", "worker", "worker", "app:latest", "exited", "Exited (1) 2s ago", "", "", 1);
+        assert_true (failed_code.is_running () == false);
+        assert_true (failed_code.is_failed () == true);
+        assert_true (failed_code.get_status_bullet () == "🔴");
+
+        // Unhealthy container
+        var unhealthy = new DockerContainerInfo ("cnt_unh", "api", "api", "app:latest", "running", "Up 1m", "unhealthy", "", 0);
+        assert_true (unhealthy.is_failed () == true);
+        assert_true (unhealthy.get_status_bullet () == "🔴");
+
+        // Dead container
+        var dead = new DockerContainerInfo ("cnt_dead", "crash", "crash", "app:latest", "dead", "Dead", "", "", 0);
+        assert_true (dead.is_failed () == true);
+        assert_true (dead.get_status_bullet () == "🔴");
 
         info.memory_bytes = 104857600ULL; // 100 MB
         info.cpu_percent = 1.5;
@@ -136,6 +162,7 @@ namespace Daemonette.Tests {
         assert_true (copy.name == info.name);
         assert_true (copy.memory_bytes == info.memory_bytes);
         assert_true (copy.cpu_percent == info.cpu_percent);
+        assert_true (copy.exit_code == info.exit_code);
     }
 
     private void test_find_variant () {

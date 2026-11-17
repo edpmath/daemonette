@@ -751,6 +751,9 @@ namespace Daemonette {
             if (exit_code != 0) {
                 service.status = ServiceStatus.FAILED;
                 status_changed (service.id, service.status);
+                if (service.service_type == ServiceType.COMPOSE) {
+                    DockerRunner.update_compose_metrics_async.begin (service);
+                }
                 return;
             }
 
@@ -763,6 +766,10 @@ namespace Daemonette {
             string ready_msg = "--- [Started: %s] ---".printf (service.name);
             buffer.append (ready_msg, false);
             output_received (service.id, ready_msg, false);
+
+            if (service.service_type == ServiceType.COMPOSE) {
+                DockerRunner.update_compose_metrics_async.begin (service);
+            }
 
             spawn_docker_log_follower (service);
         }
@@ -877,6 +884,10 @@ namespace Daemonette {
             service.metrics.reset ();
             status_changed (service.id, service.status);
 
+            if (service.service_type == ServiceType.COMPOSE) {
+                DockerRunner.update_compose_metrics_async.begin (service);
+            }
+
             string stop_msg = "--- [Stopped: %s] ---".printf (service.name);
             buffer.append (stop_msg, false);
             output_received (service.id, stop_msg, false);
@@ -891,18 +902,29 @@ namespace Daemonette {
             }
 
             foreach (var service in service_manager.services) {
-                if (service.service_type == ServiceType.COMPOSE || service.service_type == ServiceType.DOCKER) {
-                    if (service.status != ServiceStatus.STARTING && service.status != ServiceStatus.STOPPING) {
-                        ServiceStatus current = DockerRunner.query_service_status (service);
-                        if (current != service.status) {
-                            service.status = current;
-                            if (current == ServiceStatus.RUNNING && !active_processes.has_key (service.id)) {
-                                spawn_docker_log_follower (service);
-                            }
-                            status_changed (service.id, service.status);
-                        }
-                    }
+                if (service.service_type != ServiceType.COMPOSE && service.service_type != ServiceType.DOCKER) {
+                    continue;
                 }
+                if (service.status == ServiceStatus.STARTING || service.status == ServiceStatus.STOPPING) {
+                    continue;
+                }
+
+                sync_single_docker_service_status (service);
+            }
+        }
+
+        private void sync_single_docker_service_status (ServiceDefinition service) {
+            ServiceStatus current = DockerRunner.query_service_status (service);
+            if (current != service.status) {
+                service.status = current;
+                if (current == ServiceStatus.RUNNING && !active_processes.has_key (service.id)) {
+                    spawn_docker_log_follower (service);
+                }
+                status_changed (service.id, service.status);
+            }
+
+            if (service.service_type == ServiceType.COMPOSE && service.docker_containers.size == 0) {
+                DockerRunner.update_compose_metrics_async.begin (service);
             }
         }
     }

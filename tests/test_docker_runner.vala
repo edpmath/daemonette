@@ -14,6 +14,7 @@ namespace Daemonette.Tests {
         GLib.Test.add_func ("/core/docker_runner/parse_compose_ps_json", test_parse_compose_ps_json);
         GLib.Test.add_func ("/core/docker_runner/apply_stats_json", test_apply_stats_json);
         GLib.Test.add_func ("/core/docker_runner/line_matches_container_filter", test_line_matches_container_filter);
+        GLib.Test.add_func ("/core/docker_runner/query_declared_compose_services", test_query_declared_compose_services);
         GLib.Test.add_func ("/core/docker_runner/live_compose_query", test_live_compose_query);
     }
 
@@ -146,10 +147,12 @@ namespace Daemonette.Tests {
         string sample_json = """
         {"ID":"79ece75e47cb","Name":"calendar-engine","Service":"calendar-engine","Image":"digicloud-calendar","State":"running","Status":"Up 8 minutes","Health":"healthy","Ports":"0.0.0.0:7004->7004/tcp"}
         {"ID":"ca3d378f4a70","Name":"postgres-db","Service":"postgres","Image":"postgres:18","State":"running","Status":"Up 8 minutes","Health":"healthy","Ports":"0.0.0.0:5432->5432/tcp"}
+        {"ID":"f82f942987ed","Name":"failing-worker","Service":"worker","Image":"alpine","State":"exited","Status":"Exited (1) 2 seconds ago","ExitCode":1}
+        {"ID":"113d5e5f857b","Name":"stopped-job","Service":"job","Image":"alpine","State":"exited","Status":"Exited (0) 10 minutes ago","ExitCode":0}
         """;
 
         var list = DockerRunner.parse_compose_ps_json (sample_json);
-        assert_true (list.size == 2);
+        assert_true (list.size == 4);
 
         var c1 = list.get (0);
         assert_true (c1.id == "79ece75e47cb");
@@ -158,12 +161,34 @@ namespace Daemonette.Tests {
         assert_true (c1.state == "running");
         assert_true (c1.health == "healthy");
         assert_true (c1.ports.contains ("7004"));
+        assert_true (c1.is_running () == true);
+        assert_true (c1.is_failed () == false);
+        assert_true (c1.get_status_bullet () == "🟢");
 
         var c2 = list.get (1);
         assert_true (c2.id == "ca3d378f4a70");
         assert_true (c2.name == "postgres-db");
         assert_true (c2.service_name == "postgres");
         assert_true (c2.state == "running");
+
+        var c3 = list.get (2);
+        assert_true (c3.name == "failing-worker");
+        assert_true (c3.state == "exited");
+        assert_true (c3.exit_code == 1);
+        assert_true (c3.is_failed () == true);
+        assert_true (c3.get_status_bullet () == "🔴");
+
+        var c4 = list.get (3);
+        assert_true (c4.name == "stopped-job");
+        assert_true (c4.state == "exited");
+        assert_true (c4.exit_code == 0);
+        assert_true (c4.is_failed () == false);
+        assert_true (c4.get_status_bullet () == "⚪");
+
+        // Test exit code extraction from status string
+        assert_true (DockerRunner.extract_exit_code_from_status ("Exited (1) 2s ago") == 1);
+        assert_true (DockerRunner.extract_exit_code_from_status ("Exited (137) 1m ago") == 137);
+        assert_true (DockerRunner.extract_exit_code_from_status ("Up 5 minutes") == 0);
     }
 
     private void test_apply_stats_json () {
@@ -206,6 +231,54 @@ namespace Daemonette.Tests {
         // ANSI colored prefix from docker compose
         assert_true (LogViewerWindow.line_matches_container_filter ("\x1b[36mpostgres-db-1\x1b[0m | ready to accept connections", "postgres-db"));
         assert_true (!LogViewerWindow.line_matches_container_filter ("\x1b[36mpostgres-db-1\x1b[0m | ready to accept connections", "valkey-cache"));
+    }
+
+    private void test_query_declared_compose_services () {
+        if (!DockerRunner.is_docker_available ()) return;
+
+        string tmp_dir = TestUtils.make_test_directory ("daemonette_decl_XXXXXX");
+        string compose_path = GLib.Path.build_filename (tmp_dir, "docker-compose.yml");
+        try {
+            GLib.FileUtils.set_contents (compose_path, "services:\n  alpha:\n    image: alpine\n  beta:\n    image: alpine\n");
+        } catch (GLib.Error e) {
+            GLib.error ("Failed to write test compose file: %s", e.message);
+        }
+
+        var s = new ServiceDefinition ("s_decl", "Declared Test", tmp_dir, "", "", "", ServiceType.COMPOSE, compose_path);
+        var loop = new GLib.MainLoop ();
+        bool queried = false;
+
+        DockerRunner.query_compose_containers_async.begin (s, (obj, res) => {
+            var containers = DockerRunner.query_compose_containers_async.end (res);
+            assert_true (containers.size == 2);
+
+            bool found_alpha = false;
+            bool found_beta = false;
+            foreach (var c in containers) {
+                if (c.service_name == "alpha") {
+                    found_alpha = true;
+                    assert_true (c.state == "stopped");
+                    assert_true (c.get_status_bullet () == "⚪");
+                }
+                if (c.service_name == "beta") {
+                    found_beta = true;
+                    assert_true (c.state == "stopped");
+                    assert_true (c.get_status_bullet () == "⚪");
+                }
+            }
+            assert_true (found_alpha && found_beta);
+            queried = true;
+            loop.quit ();
+        });
+
+        GLib.Timeout.add_seconds (3, () => {
+            loop.quit ();
+            return GLib.Source.REMOVE;
+        });
+        loop.run ();
+
+        assert_true (queried);
+        TestUtils.remove_test_directory_and_contents (tmp_dir);
     }
 
     private void test_live_compose_query () {

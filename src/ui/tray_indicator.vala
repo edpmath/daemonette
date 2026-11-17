@@ -451,8 +451,9 @@ namespace Daemonette {
         }
 
         private Gtk.MenuItem create_single_container_menu_item (ServiceDefinition service, DockerContainerInfo c) {
-            string bullet = (c.state != "running") ? "⚪" : ((c.health == "unhealthy") ? "🔴" : "🟢");
-            string item_label = "%s %s (%s)".printf (bullet, c.name, c.format_memory ());
+            string bullet = c.get_status_bullet ();
+            string mem_or_state = (c.state == "running") ? c.format_memory () : (c.is_failed () ? tr ("Failed") : tr ("Stopped"));
+            string item_label = "%s %s (%s)".printf (bullet, c.name, mem_or_state);
             var c_item = new Gtk.MenuItem.with_label (item_label);
             var c_sub = new Gtk.Menu ();
 
@@ -463,8 +464,27 @@ namespace Daemonette {
             });
             c_sub.append (c_log_item);
 
-            var c_restart_item = new Gtk.MenuItem.with_label (tr ("🔄 Restart"));
             string subsvc = c.service_name != "" ? c.service_name : c.name;
+
+            if (c.state != "running") {
+                var c_start_item = new Gtk.MenuItem.with_label (tr ("▶ Start"));
+                c_start_item.activate.connect (() => {
+                    DockerRunner.start_compose_subservice_async.begin (service, subsvc, (obj, res) => {
+                        resource_monitor.poll_all_services ();
+                    });
+                });
+                c_sub.append (c_start_item);
+            } else {
+                var c_stop_item = new Gtk.MenuItem.with_label (tr ("⏹ Stop"));
+                c_stop_item.activate.connect (() => {
+                    DockerRunner.stop_compose_subservice_async.begin (service, subsvc, (obj, res) => {
+                        resource_monitor.poll_all_services ();
+                    });
+                });
+                c_sub.append (c_stop_item);
+            }
+
+            var c_restart_item = new Gtk.MenuItem.with_label (tr ("🔄 Restart"));
             c_restart_item.activate.connect (() => {
                 DockerRunner.restart_compose_subservice_async.begin (service, subsvc, (obj, res) => {
                     resource_monitor.poll_all_services ();
@@ -503,6 +523,13 @@ namespace Daemonette {
             }
 
             submenu.append (new Gtk.SeparatorMenuItem ());
+
+            var containers_item = create_compose_containers_menu_item (service);
+            if (containers_item != null) {
+                submenu.append (containers_item);
+                submenu.append (new Gtk.SeparatorMenuItem ());
+            }
+
             append_common_service_actions (submenu, service, tr ("📋 View Previous Logs..."));
         }
 

@@ -145,8 +145,12 @@ namespace Daemonette {
             es_dict.set ("RAM: %s | CPU: %.1f%% (%s) | Stack: %s", "RAM: %s | CPU: %.1f%% (%s) | Stack: %s");
             es_dict.set ("No active containers found for this service.", "No se encontraron contenedores activos para este servicio.");
             es_dict.set ("View logs for %s", "Ver logs de %s");
+            es_dict.set ("Start container %s", "Iniciar contenedor %s");
+            es_dict.set ("Stop container %s", "Detener contenedor %s");
             es_dict.set ("Restart container %s", "Reiniciar contenedor %s");
             es_dict.set ("Restart %s", "Reiniciar %s");
+            es_dict.set ("Failed", "Fallido");
+            es_dict.set ("Error / Failed", "Error / Fallido");
             es_dict.set ("image: %s", "imagen: %s");
             es_dict.set ("ports: %s", "puertos: %s");
             es_dict.set ("Logs", "Logs");

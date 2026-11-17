@@ -449,6 +449,19 @@ namespace Daemonette {
             }
         }
 
+        public static int extract_exit_code_from_status (string status) {
+            int open_paren = status.index_of ("(");
+            if (open_paren < 0) {
+                return 0;
+            }
+            int close_paren = status.index_of (")", open_paren);
+            if (close_paren < 0) {
+                return 0;
+            }
+            string num_str = status.substring (open_paren + 1, close_paren - open_paren - 1).strip ();
+            return int.parse (num_str);
+        }
+
         private static DockerContainerInfo? parse_container_json_object (Json.Object obj) {
             string id = obj.has_member ("ID") ? obj.get_string_member ("ID") : "";
             string name = obj.has_member ("Name") ? obj.get_string_member ("Name") : "";
@@ -458,6 +471,11 @@ namespace Daemonette {
             string status = obj.has_member ("Status") ? obj.get_string_member ("Status") : "";
             string health = obj.has_member ("Health") ? obj.get_string_member ("Health").down () : "";
             string ports = obj.has_member ("Ports") ? obj.get_string_member ("Ports") : "";
+            int exit_code = obj.has_member ("ExitCode") ? (int) obj.get_int_member ("ExitCode") : 0;
+
+            if (exit_code == 0 && status.contains ("Exited (")) {
+                exit_code = extract_exit_code_from_status (status);
+            }
 
             if (name == "" && service != "") {
                 name = service;
@@ -468,7 +486,7 @@ namespace Daemonette {
 
             if (id == "" && name == "") return null;
 
-            return new DockerContainerInfo (id, name, service, image, state, status, health, ports);
+            return new DockerContainerInfo (id, name, service, image, state, status, health, ports, exit_code);
         }
 
         /**
@@ -531,10 +549,12 @@ namespace Daemonette {
 
         /**
          * Asynchronously queries all containers belonging to a Compose service.
+         * Merges existing active/stopped containers with declared compose services.
          */
         public static async Gee.ArrayList<DockerContainerInfo> query_compose_containers_async (ServiceDefinition service) {
+            var list = new Gee.ArrayList<DockerContainerInfo> ();
             if (!is_docker_available ()) {
-                return new Gee.ArrayList<DockerContainerInfo> ();
+                return list;
             }
 
             string[] argv = build_compose_argv (service, "ps", { "--all", "--format", "json" });
@@ -548,13 +568,68 @@ namespace Daemonette {
                 yield subp.communicate_utf8_async (null, null, out stdout_buf, null);
 
                 if (stdout_buf != null) {
-                    return parse_compose_ps_json (stdout_buf);
+                    list = parse_compose_ps_json (stdout_buf);
                 }
             } catch (GLib.Error e) {
                 GLib.warning ("Error querying compose containers for '%s': %s", service.name, e.message);
             }
 
-            return new Gee.ArrayList<DockerContainerInfo> ();
+            yield merge_declared_compose_services_async (service, list);
+            return list;
+        }
+
+        private static async void merge_declared_compose_services_async (ServiceDefinition service, Gee.ArrayList<DockerContainerInfo> list) {
+            string compose_file = resolve_compose_file (service);
+            if (compose_file == "") {
+                return;
+            }
+
+            var declared_services = yield get_compose_services_for_definition_async (service, compose_file);
+            foreach (var declared in declared_services) {
+                if (has_container_for_service (list, declared)) {
+                    continue;
+                }
+                var uncreated = new DockerContainerInfo ("", declared, declared, "", "stopped", "Stopped", "", "", 0);
+                list.add (uncreated);
+            }
+        }
+
+        private static bool has_container_for_service (Gee.ArrayList<DockerContainerInfo> list, string declared) {
+            foreach (var c in list) {
+                if (c.service_name == declared || c.name == declared) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static async Gee.ArrayList<string> get_compose_services_for_definition_async (ServiceDefinition service, string compose_file) {
+            var services = new Gee.ArrayList<string> ();
+            string docker = get_docker_binary () ?? "docker";
+            string[] argv = { docker, "compose", "-f", compose_file, "config", "--services" };
+
+            try {
+                var launcher = new GLib.SubprocessLauncher (GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_SILENCE);
+                if (service.working_directory != null && service.working_directory.strip () != "") {
+                    launcher.set_cwd (service.working_directory);
+                }
+                var subp = launcher.spawnv (argv);
+                string stdout_buf;
+                yield subp.communicate_utf8_async (null, null, out stdout_buf, null);
+                if (stdout_buf == null) {
+                    return services;
+                }
+                string[] lines = stdout_buf.strip ().split ("\n");
+                foreach (var line in lines) {
+                    string trimmed = line.strip ();
+                    if (trimmed != "") {
+                        services.add (trimmed);
+                    }
+                }
+            } catch (GLib.Error e) {
+                // Ignore config parse errors if file is invalid or missing
+            }
+            return services;
         }
 
         /**
@@ -663,6 +738,30 @@ namespace Daemonette {
         }
 
         /**
+         * Asynchronously starts a specific sub-service inside a Docker Compose project.
+         */
+        public static async bool start_compose_subservice_async (ServiceDefinition service, string subservice_name) {
+            if (!is_docker_available () || subservice_name.strip () == "") {
+                return false;
+            }
+
+            string[] argv = build_compose_argv (service, "up", { "-d", subservice_name.strip () });
+            return yield run_compose_subservice_command_async (service, argv, subservice_name, "start");
+        }
+
+        /**
+         * Asynchronously stops a specific sub-service inside a Docker Compose project.
+         */
+        public static async bool stop_compose_subservice_async (ServiceDefinition service, string subservice_name) {
+            if (!is_docker_available () || subservice_name.strip () == "") {
+                return false;
+            }
+
+            string[] argv = build_compose_argv (service, "stop", { subservice_name.strip () });
+            return yield run_compose_subservice_command_async (service, argv, subservice_name, "stop");
+        }
+
+        /**
          * Asynchronously restarts a specific sub-service inside a Docker Compose project.
          */
         public static async bool restart_compose_subservice_async (ServiceDefinition service, string subservice_name) {
@@ -671,6 +770,10 @@ namespace Daemonette {
             }
 
             string[] argv = build_compose_argv (service, "restart", { subservice_name.strip () });
+            return yield run_compose_subservice_command_async (service, argv, subservice_name, "restart");
+        }
+
+        private static async bool run_compose_subservice_command_async (ServiceDefinition service, string[] argv, string subservice_name, string op_name) {
             try {
                 var launcher = new GLib.SubprocessLauncher (GLib.SubprocessFlags.STDOUT_PIPE | GLib.SubprocessFlags.STDERR_PIPE);
                 if (service.working_directory != null && service.working_directory.strip () != "") {
@@ -681,7 +784,7 @@ namespace Daemonette {
                 yield subp.communicate_utf8_async (null, null, out stdout_buf, out stderr_buf);
                 return (subp.get_exit_status () == 0);
             } catch (GLib.Error e) {
-                GLib.warning ("Failed to restart compose subservice '%s': %s", subservice_name, e.message);
+                GLib.warning ("Failed to %s compose subservice '%s': %s", op_name, subservice_name, e.message);
                 return false;
             }
         }
